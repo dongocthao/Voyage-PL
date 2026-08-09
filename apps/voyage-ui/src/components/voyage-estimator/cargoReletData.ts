@@ -145,6 +145,7 @@ export type ReletPortRow = {
   no: string;
   type: string;
   port: string;
+  timezone?: string;
   distance: string;
   eca: string;
   wf: string;

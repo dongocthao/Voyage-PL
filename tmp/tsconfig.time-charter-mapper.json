@@ -1,0 +1,16 @@
+{
+  "extends": "../apps/voyage-ui/tsconfig.json",
+  "include": [
+    "vite-env-smoke.d.ts",
+    "time-charter-mapper-smoke.ts",
+    "../apps/voyage-ui/src/**/*.ts",
+    "../apps/voyage-ui/src/**/*.tsx"
+  ],
+  "compilerOptions": {
+    "baseUrl": "../apps/voyage-ui",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "types": []
+  }
+}

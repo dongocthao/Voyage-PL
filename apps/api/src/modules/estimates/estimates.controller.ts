@@ -6,8 +6,12 @@ import {
   FreightSimulationDto,
   TimeCharterCalculationDto,
 } from './dto/estimate-simulation.dto';
+import { SaveCargoReletEstimateDto } from './dto/cargo-relet-snapshot.dto';
 import { SaveVoyageEstimateDto } from './dto/voyage-estimate-snapshot.dto';
+import { SaveTimeCharterEstimateDto } from './dto/time-charter-snapshot.dto';
 import { EstimateSimulationService } from './services/estimate-simulation.service';
+import { CargoReletEstimateSnapshotService } from './services/cargo-relet-estimate-snapshot.service';
+import { TimeCharterEstimateSnapshotService } from './services/time-charter-estimate-snapshot.service';
 import { VoyageEstimateSnapshotService } from './services/voyage-estimate-snapshot.service';
 
 @ApiTags('estimates')
@@ -15,6 +19,8 @@ import { VoyageEstimateSnapshotService } from './services/voyage-estimate-snapsh
 export class EstimatesController {
   constructor(
     private readonly voyageSnapshots: VoyageEstimateSnapshotService,
+    private readonly timeCharterSnapshots: TimeCharterEstimateSnapshotService,
+    private readonly cargoReletSnapshots: CargoReletEstimateSnapshotService,
     private readonly simulations: EstimateSimulationService,
   ) {}
 
@@ -31,6 +37,26 @@ export class EstimatesController {
   @Get('voyage-snapshots/:estimateId/report-summary')
   voyageReportSummary(@Param('estimateId') estimateId: string) {
     return this.voyageSnapshots.reportSummary(estimateId);
+  }
+
+  @Post('time-charter-snapshots')
+  saveTimeCharterSnapshot(@Body() body: SaveTimeCharterEstimateDto) {
+    return this.timeCharterSnapshots.save(body);
+  }
+
+  @Get('time-charter-snapshots/:estimateId')
+  loadTimeCharterSnapshot(@Param('estimateId') estimateId: string) {
+    return this.timeCharterSnapshots.load(estimateId);
+  }
+
+  @Post('cargo-relet-snapshots')
+  saveCargoReletSnapshot(@Body() body: SaveCargoReletEstimateDto) {
+    return this.cargoReletSnapshots.save(body);
+  }
+
+  @Get('cargo-relet-snapshots/:estimateId')
+  loadCargoReletSnapshot(@Param('estimateId') estimateId: string) {
+    return this.cargoReletSnapshots.load(estimateId);
   }
 
   @Post('voyage-simulations/freight')

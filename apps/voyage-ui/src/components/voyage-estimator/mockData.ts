@@ -251,6 +251,7 @@ export type PortRow = {
   type: string;
   port: string;
   portId?: string;
+  timezone?: string;
   distance: string;
   eca: string;
   wf: string;

@@ -3,8 +3,11 @@
 export type TcCpRow = {
   key: string;
   account: string;
+  accountCompanyId?: string;
   deliveryPort: string;
+  deliveryPortId?: string;
   redeliveryPort: string;
+  redeliveryPortId?: string;
   duration: string;
   dailyHire: string;
   grossHire: string;
@@ -45,6 +48,8 @@ export type TcPortRow = {
   no: string;
   type: string;
   port: string;
+  portId?: string;
+  timezone: string;
   distance: string;
   eca: string;
   wf: string;
@@ -61,6 +66,7 @@ export const tcPortData: TcPortRow[] = [
     no: "1",
     type: "Ballast",
     port: "Changjiagang <China> [+08:00]",
+    timezone: "+08:00",
     distance: "",
     eca: "",
     wf: "",
@@ -75,6 +81,7 @@ export const tcPortData: TcPortRow[] = [
     no: "2",
     type: "Ballast",
     port: "Tianjin <China> [+08:00]",
+    timezone: "+08:00",
     distance: "760",
     eca: "63",
     wf: "0.0 %",
@@ -89,6 +96,7 @@ export const tcPortData: TcPortRow[] = [
     no: "3",
     type: "Delivery",
     port: "Tianjin <China> [+08:00]",
+    timezone: "+08:00",
     distance: "",
     eca: "",
     wf: "",
@@ -103,6 +111,7 @@ export const tcPortData: TcPortRow[] = [
     no: "4",
     type: "Redelivery",
     port: "Singapore <Singapore> [+08:00]",
+    timezone: "+08:00",
     distance: "",
     eca: "",
     wf: "",
@@ -117,6 +126,7 @@ export const tcPortData: TcPortRow[] = [
     no: "5",
     type: "Ballast",
     port: "Singapore <Singapore> [+08:00]",
+    timezone: "+08:00",
     distance: "",
     eca: "",
     wf: "",
@@ -131,6 +141,7 @@ export const tcPortData: TcPortRow[] = [
     no: "6",
     type: "Ballast",
     port: "Singapore <Singapore> [+08:00]",
+    timezone: "+08:00",
     distance: "0",
     eca: "0",
     wf: "5.0 %",
@@ -145,6 +156,7 @@ export const tcPortData: TcPortRow[] = [
     no: "",
     type: "Margin",
     port: "",
+    timezone: "",
     distance: "",
     eca: "",
     wf: "",
@@ -156,41 +168,11 @@ export const tcPortData: TcPortRow[] = [
   },
 ];
 
-export const tcPortTotals = {
-  distance: "760",
-  eca: "63",
-  sea: "2.26",
-  idle: "0.00",
-  arrival: "2020-07-03 13:49",
-  departure: "2020-08-09 20:07",
-};
-
 export const tcPortSummary =
   "Total Duration: 37.26 Days, Ballast: 2.26 Days (Sea: 2.26, ECA: 0.19, Port: 0), TC Out: 35.00 Days / (Port local time) 2020-07-03 13:49 ~ 2020-08-09 20:07";
 
 export const TC_PORT_TYPES = ["Delivery", "Redelivery", "Ballast", "Bunker", "Canal", "Others"];
 
-export const tcHireRows: Array<[string, string, string, string]> = [
-  ["Head Hire / Day", "8,500.0", "Sub Hire / Day", "10,200.0"],
-  ["Head Add Comm.", "3.8 %", "Sub Add Comm.", "2.5 %"],
-  ["Head Net Hire", "8,177.0", "Sub Net Hire", "9,945.0"],
-  ["Hire Days", "40.43", "Ballast Bonus", "0.0"],
-];
-
-export const tcOperationExpense: Array<[string, string, string, string]> = [
-  ["Dem/Des", "6,000.0", "Bunker Expense", "352,140.0"],
-  ["Add Comm.", "13,060.0", "C.E.V.", "2,150.0"],
-  ["Brokerage", "4,465.0", "ILOHC", "5,000.0"],
-  ["Port Charge", "260,000.0", "Others", "0.0"],
-];
-
-export const tcResultRows: Array<[string, string, string, string]> = [
-  ["Revenue (Sub Hire)", "402,046.0", "Op. Expense", "330,600.0"],
-  ["Head Hire Cost", "330,600.0", "Net Voyage Days", "40.43"],
-  ["Gross Margin", "71,446.0", "TCE / Day", "1,767.0"],
-];
-
-export const tcProfitUsd = "71,446.0";
 /** ====== Bottom panels ====== */
 export type TcHireRow = {
   key: string;
@@ -288,8 +270,6 @@ export const tcBunkerTable: TcBunkerRow[] = [
   { key: "vlsfo", fuel: "VLSFO", price: "400.0", consumption: "54.0", expense: "21,583.4" },
   { key: "mgo", fuel: "MGO", price: "500.0", consumption: "0.2", expense: "108.5" },
   { key: "ulsfo", fuel: "ULSFO", price: "300.0", consumption: "4.9", expense: "1,477.2" },
-  { key: "b1", fuel: "", price: "", consumption: "", expense: "" },
-  { key: "b2", fuel: "", price: "", consumption: "", expense: "" },
 ];
 
 export const tcOthers = { income: "4,500.0", expense: "7,000.0" };

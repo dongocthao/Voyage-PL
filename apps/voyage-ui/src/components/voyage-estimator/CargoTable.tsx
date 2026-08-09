@@ -15,6 +15,7 @@ import { SectionTitle, TxtCell, YCell } from "./cells";
 import { VE_COLORS } from "./theme";
 import { cargoData, type CargoRow } from "./mockData";
 import { useRowOps } from "./useRowOps";
+import { useResizableColumns } from "./useResizableColumns";
 import type { LookupItem } from "@/lib/api/masterData";
 
 type CargoField = keyof CargoRow;
@@ -22,6 +23,7 @@ type CargoLookupKind = "companies" | "cargoes" | "ports" | "cpTerms";
 
 type CargoLookups = Partial<Record<CargoLookupKind, LookupItem[]>>;
 const UNIT_OPTIONS = ["MT", "KG", "TON", "M3", "CBM", "BBL", "GAL", "LTR", "PCS", "UNIT"];
+const PERCENT_COL_WIDTH = 58;
 
 function lookupLabel(item: LookupItem) {
   if (item.term && item.code) return item.code;
@@ -74,11 +76,11 @@ const buildColumns = (
   ) => void,
   lookups: CargoLookups,
 ): ColumnsType<CargoRow> => [
-  { title: "#", dataIndex: "no", width: "2.7%", align: "center" },
+  { title: "#", dataIndex: "no", width: 42, align: "center" },
   {
     title: "Account",
     dataIndex: "account",
-    width: "7.2%",
+    width: 108,
     render: (v: string, row) => (
       <LookupCell
         value={v}
@@ -91,7 +93,7 @@ const buildColumns = (
   {
     title: "Cargo Name",
     dataIndex: "cargoName",
-    width: "10%",
+    width: 136,
     render: (v: string, row) => (
       <LookupCell
         value={v}
@@ -104,7 +106,7 @@ const buildColumns = (
   {
     title: "Loading Port",
     dataIndex: "loadingPort",
-    width: "14.5%",
+    width: 145,
     render: (v: string, row) => (
       <LookupCell
         value={v}
@@ -117,7 +119,7 @@ const buildColumns = (
   {
     title: "Discharging Port",
     dataIndex: "dischargingPort",
-    width: "14.5%",
+    width: 145,
     render: (v: string, row) => (
       <LookupCell
         value={v}
@@ -130,7 +132,7 @@ const buildColumns = (
   {
     title: "Quantity",
     dataIndex: "quantity",
-    width: "6.2%",
+    width: 88,
     align: "right",
     render: (v: string, row) => (
       <TxtCell value={v} right onChange={(value) => update(row.key, "quantity", value)} />
@@ -139,7 +141,7 @@ const buildColumns = (
   {
     title: "Unit",
     dataIndex: "unit",
-    width: "3.4%",
+    width: 58,
     align: "center",
     render: (v: string, row) => (
       <Select
@@ -158,7 +160,7 @@ const buildColumns = (
       {
         title: "Frt",
         dataIndex: "frt",
-        width: "4.5%",
+        width: 72,
         align: "right",
         render: (v: string, row) => (
           <TxtCell
@@ -172,7 +174,7 @@ const buildColumns = (
       {
         title: "Term",
         dataIndex: "term",
-        width: "5.8%",
+        width: 82,
         align: "center",
         render: (v: string, row) => (
           <LookupCell
@@ -186,7 +188,7 @@ const buildColumns = (
       {
         title: "Frt Type",
         dataIndex: "frtType",
-        width: "4.2%",
+        width: 64,
         align: "center",
         render: (v: string, row) => (
           <Select
@@ -205,7 +207,7 @@ const buildColumns = (
       {
         title: "Frt Lumpsum",
         dataIndex: "frtLumpsum",
-        width: "6.8%",
+        width: 96,
         align: "right",
         render: (v: string, row) => (
           <TxtCell
@@ -219,7 +221,7 @@ const buildColumns = (
       {
         title: "Total Freight",
         dataIndex: "totalFreight",
-        width: "9%",
+        width: 118,
         align: "right",
         render: (_v: string, row) => <YCell value={formatAmount(freightAmount(row))} readOnly />,
       },
@@ -228,34 +230,46 @@ const buildColumns = (
   {
     title: "A. Comm",
     dataIndex: "aComm",
-    width: "5.4%",
+    width: PERCENT_COL_WIDTH,
     align: "right",
     render: (v: string, row) => (
-      <TxtCell value={v} right onChange={(value) => update(row.key, "aComm", value)} />
+      <TxtCell
+        value={v}
+        right
+        onChange={(value) => update(row.key, "aComm", formatPercentInput(value))}
+      />
     ),
   },
   {
     title: "Brkg",
     dataIndex: "brkg",
-    width: "5.4%",
+    width: PERCENT_COL_WIDTH,
     align: "right",
     render: (v: string, row) => (
-      <TxtCell value={v} right onChange={(value) => update(row.key, "brkg", value)} />
+      <TxtCell
+        value={v}
+        right
+        onChange={(value) => update(row.key, "brkg", formatPercentInput(value))}
+      />
     ),
   },
   {
     title: "Frt Tax",
     dataIndex: "frtTax",
-    width: "4.5%",
+    width: PERCENT_COL_WIDTH,
     align: "right",
     render: (v: string, row) => (
-      <TxtCell value={v} right onChange={(value) => update(row.key, "frtTax", value)} />
+      <TxtCell
+        value={v}
+        right
+        onChange={(value) => update(row.key, "frtTax", formatPercentInput(value))}
+      />
     ),
   },
   {
     title: "Liner Term",
     dataIndex: "linerTerm",
-    width: "5%",
+    width: 76,
     align: "center",
     render: (v: string, row) => (
       <TxtCell value={v} onChange={(value) => update(row.key, "linerTerm", value)} />
@@ -264,7 +278,7 @@ const buildColumns = (
   {
     title: "",
     key: "search",
-    width: "3.4%",
+    width: 44,
     align: "center",
     render: () => <SearchOutlined style={{ color: "#888" }} />,
   },
@@ -323,7 +337,7 @@ export default function CargoTable({
       }),
     );
   };
-  const columns = buildColumns(update, selectLookup, lookups);
+  const columns = useResizableColumns(buildColumns(update, selectLookup, lookups));
   const totals = cargoTotals(cargo.rows);
 
   useEffect(() => {
@@ -451,6 +465,12 @@ function formatAmount(value: number) {
 
 function formatPercent(value: number) {
   return `${value.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+}
+
+function formatPercentInput(value: string) {
+  const cleaned = value.replace(/[^0-9.,-]/g, "").replace(",", ".");
+  if (!cleaned.trim() || cleaned === "-" || cleaned === ".") return "";
+  return `${cleaned} %`;
 }
 
 export type RowToolbarProps = {

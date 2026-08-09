@@ -1,6 +1,6 @@
 import { Button, Checkbox, Select, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import {
   EnvironmentOutlined,
   DesktopOutlined,
@@ -9,9 +9,10 @@ import {
 } from "@ant-design/icons";
 import { SectionTitle, TxtCell, YCell } from "./cells";
 import { VE_COLORS } from "./theme";
-import { portRotationData, portSummary, type PortRow } from "./mockData";
+import { portRotationData, portSummary, type CargoRow, type PortRow } from "./mockData";
 import { RowToolbar } from "./CargoTable";
 import { useRowOps } from "./useRowOps";
+import { useResizableColumns } from "./useResizableColumns";
 import type { LookupItem } from "@/lib/api/masterData";
 
 const isMargin = (r: PortRow) => r.key === "margin";
@@ -109,11 +110,11 @@ const buildColumns = (
   selectPort: (key: string, value: string) => void,
   ports: LookupItem[],
 ): ColumnsType<PortRow> => [
-  { title: "#", dataIndex: "no", width: "2.6%", align: "center" },
+  { title: "#", dataIndex: "no", width: 42, align: "center" },
   {
     title: "Type",
     dataIndex: "type",
-    width: "5.7%",
+    width: 86,
     render: (v: string, r) =>
       isMargin(r) ? (
         <b>{v}</b>
@@ -131,7 +132,7 @@ const buildColumns = (
   {
     title: "Port Name / Coordinate",
     dataIndex: "port",
-    width: "18%",
+    width: 220,
     render: (v: string, row) =>
       isMargin(row) ? (
         <span>{v}</span>
@@ -145,43 +146,55 @@ const buildColumns = (
       ),
   },
   {
+    title: "Time Zone",
+    dataIndex: "timezone",
+    width: 82,
+    align: "center",
+    render: (value: string) => <YCell value={value} right={false} readOnly />,
+  },
+  {
     title: "Distance",
     children: [
       {
         title: "TTL",
         dataIndex: "distance",
-        width: "5%",
+        width: 70,
         align: "right",
         render: text(update, "distance", true),
       },
       {
         title: "ECA",
         dataIndex: "eca",
-        width: "4.1%",
+        width: 64,
         align: "right",
         render: text(update, "eca", true),
       },
     ],
   },
-  { title: "WF", dataIndex: "wf", width: "4.4%", align: "right", render: text(update, "wf", true) },
+  { title: "WF", dataIndex: "wf", width: 66, align: "right", render: text(update, "wf", true) },
   {
     title: "Spd",
     dataIndex: "spd",
-    width: "4.4%",
+    width: 64,
     align: "right",
     render: yellow(update, "spd", true),
   },
   {
     title: "Sea",
     dataIndex: "sea",
-    width: "4.4%",
+    width: 64,
     align: "right",
-    render: yellow(update, "sea", true, isMargin),
+    render: (value: string, row) =>
+      isMargin(row) ? (
+        <YCell value={value} right onChange={(next) => update(row.key, "sea", next)} />
+      ) : (
+        <YCell value={value} right readOnly />
+      ),
   },
   {
     title: "L/D Rate",
     dataIndex: "ldRate",
-    width: "6.4%",
+    width: 86,
     align: "right",
     render: yellow(update, "ldRate", true),
   },
@@ -191,53 +204,63 @@ const buildColumns = (
       {
         title: "Idle",
         dataIndex: "idle",
-        width: "4.1%",
+        width: 64,
         align: "right",
         render: yellow(update, "idle", true, isMargin),
       },
       {
         title: "Working",
         dataIndex: "working",
-        width: "4.7%",
+        width: 72,
         align: "right",
-        render: text(update, "working", true),
+        render: (value: string) => <YCell value={value} right readOnly />,
       },
     ],
   },
   {
     title: "Dem",
     dataIndex: "dem",
-    width: "4.1%",
+    width: 64,
     align: "right",
     render: text(update, "dem", true),
   },
   {
     title: "Des",
     dataIndex: "des",
-    width: "5.5%",
+    width: 72,
     align: "right",
     render: text(update, "des", true),
   },
   {
     title: "Port Charge",
     dataIndex: "portCharge",
-    width: "7.3%",
+    width: 96,
     align: "right",
     render: yellow(update, "portCharge", true),
   },
   {
     title: "Arrival",
     dataIndex: "arrival",
-    width: "9.6%",
+    width: 118,
     align: "center",
-    render: text(update, "arrival"),
+    render: (value: string, row) =>
+      row.key === "1" ? (
+        <TxtCell value={value} onChange={(next) => update(row.key, "arrival", next)} />
+      ) : (
+        <YCell value={value} right={false} readOnly />
+      ),
   },
   {
     title: "Departure",
     dataIndex: "departure",
-    width: "9.7%",
+    width: 118,
     align: "center",
-    render: text(update, "departure", false, (r) => r.key === "1"),
+    render: (value: string, row) =>
+      row.key === "1" ? (
+        <TxtCell value={value} onChange={(next) => update(row.key, "departure", next)} />
+      ) : (
+        <YCell value={value} right={false} readOnly />
+      ),
   },
 ];
 
@@ -258,6 +281,7 @@ export default function PortRotationTable({
   initialRows = portRotationData,
   reloadKey,
   ports = [],
+  cargoRows = [],
 }: {
   onOpenAnalyzer?: () => void;
   onOpenRemark?: () => void;
@@ -275,6 +299,7 @@ export default function PortRotationTable({
   initialRows?: PortRow[];
   reloadKey?: number;
   ports?: LookupItem[];
+  cargoRows?: CargoRow[];
 } = {}) {
   const port = useRowOps<PortRow>(initialRows);
   const { setRows } = port;
@@ -289,12 +314,16 @@ export default function PortRotationTable({
       ),
     );
   };
-  const columns = buildColumns(update, selectPort, ports);
-  const totals = portTotals(port.rows);
+  const columns = useResizableColumns(buildColumns(update, selectPort, ports));
+  const calculatedRows = useMemo(
+    () => calculatePortSchedule(port.rows, cargoRows),
+    [cargoRows, port.rows],
+  );
+  const totals = portTotals(calculatedRows);
 
   useEffect(() => {
-    onRowsChange?.(port.rows);
-  }, [port.rows, onRowsChange]);
+    onRowsChange?.(calculatedRows);
+  }, [calculatedRows, onRowsChange]);
 
   useEffect(() => {
     setRows(initialRows);
@@ -334,7 +363,7 @@ export default function PortRotationTable({
         pagination={false}
         tableLayout="fixed"
         columns={columns}
-        dataSource={port.rows}
+        dataSource={calculatedRows}
         onRow={port.onRow}
         rowClassName={(r) =>
           isMargin(r) ? "ve-margin-row" : r.key === port.selectedKey ? "ve-row-selected" : ""
@@ -342,40 +371,40 @@ export default function PortRotationTable({
         summary={() => (
           <Table.Summary fixed>
             <Table.Summary.Row style={{ background: "#EAF3FF", fontWeight: 600 }}>
-              <Table.Summary.Cell index={0} colSpan={3} align="right">
+              <Table.Summary.Cell index={0} colSpan={4} align="right">
                 Totals
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={3} align="right">
+              <Table.Summary.Cell index={4} align="right">
                 {formatAmount(totals.distance)}
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={4} align="right">
+              <Table.Summary.Cell index={5} align="right">
                 {formatAmount(totals.eca)}
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={5} />
               <Table.Summary.Cell index={6} />
-              <Table.Summary.Cell index={7} align="right">
+              <Table.Summary.Cell index={7} />
+              <Table.Summary.Cell index={8} align="right">
                 {formatAmount(totals.sea)}
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={8} />
-              <Table.Summary.Cell index={9} align="right">
+              <Table.Summary.Cell index={9} />
+              <Table.Summary.Cell index={10} align="right">
                 {formatAmount(totals.idle)}
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={10} align="right">
+              <Table.Summary.Cell index={11} align="right">
                 {formatAmount(totals.working)}
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={11} align="right">
+              <Table.Summary.Cell index={12} align="right">
                 {formatAmount(totals.dem)}
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={12} align="right">
+              <Table.Summary.Cell index={13} align="right">
                 {formatAmount(totals.des)}
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={13} align="right">
+              <Table.Summary.Cell index={14} align="right">
                 {formatAmount(totals.portCharge)}
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={14} align="center">
+              <Table.Summary.Cell index={15} align="center">
                 {totals.arrival}
               </Table.Summary.Cell>
-              <Table.Summary.Cell index={15} align="center">
+              <Table.Summary.Cell index={16} align="center">
                 {totals.departure}
               </Table.Summary.Cell>
             </Table.Summary.Row>
@@ -457,6 +486,132 @@ function portTotals(rows: PortRow[]) {
   };
 }
 
+function calculatePortSchedule(rows: PortRow[], cargoRows: CargoRow[]) {
+  let previousDeparture: Date | undefined;
+  let previousTimezone = "";
+
+  return rows.map((row) => {
+    const timezone = resolvePortTimezone(row.port) || row.timezone || "";
+
+    if (isMargin(row)) {
+      const arrival = addDays(previousDeparture, parseAmount(row.sea));
+      const departure = addDays(arrival, parseAmount(row.idle));
+      return {
+        ...row,
+        timezone: "",
+        arrival: formatDateTime(arrival),
+        departure: formatDateTime(departure),
+      };
+    }
+
+    const seaDays = calculateSeaDays(row);
+    const working = calculateWorkingDays(row, cargoRows);
+    const arrival = previousDeparture
+      ? addDays(previousDeparture, (seaDays ?? 0) + timezoneDeltaDays(previousTimezone, timezone))
+      : parseDateTime(row.arrival);
+    const initialDeparture = parseDateTime(row.departure);
+    const departure =
+      addDays(arrival, parseAmount(row.idle) + parseAmount(working)) ?? initialDeparture;
+    previousDeparture = departure ?? arrival ?? previousDeparture;
+    previousTimezone = timezone || previousTimezone;
+
+    return {
+      ...row,
+      timezone,
+      sea: seaDays === undefined ? "" : formatAmount(seaDays, 2),
+      working,
+      arrival: formatDateTime(arrival),
+      departure: formatDateTime(departure),
+    };
+  });
+}
+
+function calculateSeaDays(row: PortRow) {
+  const ttl = parseAmount(row.distance);
+  const eca = parseAmount(row.eca);
+  const wf = parseAmount(row.wf);
+  const speed = parseAmount(row.spd);
+  if (!speed) return undefined;
+  return ((ttl + eca) * (1 + wf / 100)) / (speed * 24);
+}
+
+function calculateWorkingDays(row: PortRow, cargoRows: CargoRow[]) {
+  const ldRate = parseAmount(row.ldRate);
+  if (!ldRate) return "";
+
+  const portName = normalizePortName(row.port);
+  const isLoading = /load/i.test(row.type);
+  const isDischarging = /disch|discharge/i.test(row.type);
+  if (!isLoading && !isDischarging) return "";
+
+  const quantity = sum(
+    cargoRows
+      .filter((cargo) => {
+        const cargoPort = normalizePortName(isLoading ? cargo.loadingPort : cargo.dischargingPort);
+        return cargoPort && cargoPort === portName;
+      })
+      .map((cargo) => parseAmount(cargo.quantity)),
+  );
+
+  if (!quantity) return "";
+  return formatAmount(quantity / ldRate, 2);
+}
+
+function normalizePortName(value: string | undefined) {
+  return (value ?? "")
+    .replace(/\s*\[[+-]\d{2}:\d{2}\]\s*/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function resolvePortTimezone(portNameOrCoordinate: string) {
+  const match = portNameOrCoordinate.match(/\[([+-]\d{2}:\d{2})\]/);
+  return match?.[1] ?? "";
+}
+
+function timezoneDeltaDays(fromTimezone: string, toTimezone: string) {
+  return (parseTimezoneHours(toTimezone) - parseTimezoneHours(fromTimezone)) / 24;
+}
+
+function parseTimezoneHours(value: string) {
+  const match = value.match(/^([+-])(\d{2}):(\d{2})$/);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  return sign * (Number(match[2]) + Number(match[3]) / 60);
+}
+
+function addDays(date: Date | undefined, days: number | undefined) {
+  if (!date || days === undefined) return undefined;
+  const next = new Date(date);
+  next.setMinutes(next.getMinutes() + days * 24 * 60);
+  return next;
+}
+
+function parseDateTime(value: string | undefined) {
+  if (!value || /time/i.test(value)) return undefined;
+  const trimmed = value.trim();
+  const ddmmyyyy = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})$/);
+  if (ddmmyyyy) {
+    const [, day, month, year, hour, minute] = ddmmyyyy;
+    return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  }
+  const yyyymmdd = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+  if (yyyymmdd) {
+    const [, year, month, day, hour, minute] = yyyymmdd;
+    return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  }
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function formatDateTime(value: Date | undefined) {
+  if (!value) return "";
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return `${pad(value.getDate())}/${pad(value.getMonth() + 1)}/${value.getFullYear()} ${pad(
+    value.getHours(),
+  )}:${pad(value.getMinutes())}`;
+}
+
 function parseAmount(value: string | undefined) {
   if (!value) return 0;
   const parsed = Number(value.replace(/,/g, "").replace("%", "").trim());
@@ -467,6 +622,9 @@ function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0);
 }
 
-function formatAmount(value: number) {
-  return value.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+function formatAmount(value: number, digits = 1) {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }

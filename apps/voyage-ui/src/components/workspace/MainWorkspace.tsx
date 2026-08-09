@@ -29,8 +29,14 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import { Suspense, lazy, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, lazy, useCallback, useMemo, useRef, useState, type CSSProperties } from "react";
 import VoyageEstimator from "@/components/voyage-estimator/VoyageEstimator";
+import {
+  ToolbarCommandManager,
+  type ToolbarCommand,
+  type ToolbarCommandState,
+} from "@/components/voyage-estimator/toolbarCommandManager";
+import type { WorkspaceToolbarRegistration } from "./workspaceToolbar";
 
 const OperationApp = lazy(() => import("@/components/voyage-estimator/OperationApp"));
 const TimeCharterApp = lazy(() => import("@/components/voyage-estimator/TimeCharterApp"));
@@ -46,32 +52,32 @@ type WorkspacePage =
   | "time-charter-party";
 
 type RibbonAction = {
+  command: ToolbarCommand;
   label: string;
   icon: React.ComponentType<{ className?: string; strokeWidth?: number; style?: CSSProperties }>;
   color: string;
-  disabled?: boolean;
 };
 
 const ribbonGroups: RibbonAction[][] = [
   [
-    { label: "New Sheet", icon: FilePlus2, color: "#008d61" },
-    { label: "Delete sheet", icon: FileMinus, color: "#ce3f34" },
+    { command: "new", label: "New Sheet", icon: FilePlus2, color: "#008d61" },
+    { command: "delete", label: "Delete sheet", icon: FileMinus, color: "#ce3f34" },
   ],
   [
-    { label: "Save", icon: Save, color: "#006994" },
-    { label: "Save as", icon: SaveAll, color: "#007A9E" },
-    { label: "Open", icon: FolderOpen, color: "#d28a00" },
-    { label: "Reload", icon: RefreshCw, color: "#1b7f5f" },
+    { command: "save", label: "Save", icon: Save, color: "#006994" },
+    { command: "saveAs", label: "Save as", icon: SaveAll, color: "#007A9E" },
+    { command: "open", label: "Open", icon: FolderOpen, color: "#d28a00" },
+    { command: "reload", label: "Reload", icon: RefreshCw, color: "#1b7f5f" },
   ],
   [
-    { label: "Undo", icon: RotateCcw, color: "#6d7a86", disabled: true },
-    { label: "Redo", icon: RotateCw, color: "#6d7a86", disabled: true },
+    { command: "undo", label: "Undo", icon: RotateCcw, color: "#6d7a86" },
+    { command: "redo", label: "Redo", icon: RotateCw, color: "#6d7a86" },
   ],
   [
-    { label: "Increase", icon: Plus, color: "#006994" },
-    { label: "Decrease", icon: Minus, color: "#006994" },
-    { label: "Option", icon: Settings, color: "#5f6470" },
-    { label: "To Operation", icon: History, color: "#007A9E" },
+    { command: "increase", label: "Increase", icon: Plus, color: "#006994" },
+    { command: "decrease", label: "Decrease", icon: Minus, color: "#006994" },
+    { command: "options", label: "Option", icon: Settings, color: "#5f6470" },
+    { command: "toOperation", label: "To Operation", icon: History, color: "#007A9E" },
   ],
 ];
 
@@ -108,8 +114,61 @@ export default function MainWorkspace() {
   const [charterPartyOpen, setCharterPartyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
+  const [toolbarMessage, setToolbarMessage] = useState<string>();
+  const [toolbarRegistration, setToolbarRegistration] = useState<WorkspaceToolbarRegistration>({
+    hasSheet: false,
+    hasEstimate: false,
+    execute: {},
+  });
   const navigate = useNavigate();
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
+  const toolbarManager = useMemo(
+    () => new ToolbarCommandManager(toolbarRegistration.hasSheet, toolbarRegistration.hasEstimate),
+    [toolbarRegistration.hasEstimate, toolbarRegistration.hasSheet],
+  );
+  const toolbarCommandState = useMemo(() => toolbarManager.getState(), [toolbarManager]);
+  const registerToolbar = useCallback((registration: WorkspaceToolbarRegistration) => {
+    setToolbarRegistration(registration);
+  }, []);
+
+  const resetToolbarRegistration = () => {
+    setToolbarMessage(undefined);
+    setToolbarRegistration({ hasSheet: false, hasEstimate: false, execute: {} });
+  };
+
+  const executeToolbarCommand = (command: ToolbarCommand) => {
+    const result = toolbarManager.execute(command);
+    if (!result.ok) {
+      setToolbarMessage(result.message);
+      return;
+    }
+
+    setToolbarMessage(undefined);
+    if (command === "toOperation") {
+      resetToolbarRegistration();
+      setPage("operation");
+      return;
+    }
+
+    const handler = toolbarRegistration.execute[command];
+    if (handler) {
+      handler();
+      if (command === "new") {
+        setToolbarRegistration((current) => ({ ...current, hasSheet: true, hasEstimate: false }));
+      }
+      if (command === "delete") {
+        setToolbarRegistration((current) => ({ ...current, hasSheet: false, hasEstimate: false }));
+      }
+      return;
+    }
+
+    if (command === "options") {
+      setToolbarMessage("Options are not available for this sheet yet.");
+      return;
+    }
+
+    setToolbarMessage(`Command ${command} is not available for this sheet yet.`);
+  };
 
   const breadcrumb = useMemo(() => {
     const section = page.includes("charter-party")
@@ -146,7 +205,12 @@ export default function MainWorkspace() {
         userOpen={userOpen}
         onToggleUser={() => setUserOpen((value) => !value)}
       />
-      <RibbonBar onOperation={() => setPage("operation")} />
+      <RibbonBar commandState={toolbarCommandState} onCommand={executeToolbarCommand} />
+      {toolbarMessage && (
+        <div className="border-b border-[#f0b8b8] bg-[#fff2f0] px-3 py-1 text-[12px] font-semibold text-[#b42318]">
+          {toolbarMessage}
+        </div>
+      )}
       <div className="flex h-[calc(100vh-52px-88px-28px)] min-h-0">
         <Sidebar
           width={sidebarWidth}
@@ -170,6 +234,7 @@ export default function MainWorkspace() {
             setCharterPartyOpen(false);
           }}
           onSelectPage={(nextPage) => {
+            resetToolbarRegistration();
             setPage(nextPage);
             setEstimationOpen(false);
             setCharterPartyOpen(false);
@@ -192,9 +257,15 @@ export default function MainWorkspace() {
             <Suspense
               fallback={<div className="p-4 text-sm text-[#006994]">Loading workspace...</div>}
             >
-              {page === "voyage-estimation" && <VoyageEstimator />}
-              {page === "time-charter" && <TimeCharterApp />}
-              {page === "cargo-relet" && <CargoReletApp />}
+              {page === "voyage-estimation" && (
+                <VoyageEstimator registerWorkspaceToolbar={registerToolbar} />
+              )}
+              {page === "time-charter" && (
+                <TimeCharterApp registerWorkspaceToolbar={registerToolbar} />
+              )}
+              {page === "cargo-relet" && (
+                <CargoReletApp registerWorkspaceToolbar={registerToolbar} />
+              )}
               {page === "operation" && <OperationApp />}
               {page === "voyage-charter-party" && <CharterPartyApp type="voyage" />}
               {page === "time-charter-party" && <CharterPartyApp type="time-charter" />}
@@ -277,7 +348,13 @@ function Topbar({
   );
 }
 
-function RibbonBar({ onOperation }: { onOperation: () => void }) {
+function RibbonBar({
+  commandState,
+  onCommand,
+}: {
+  commandState: ToolbarCommandState;
+  onCommand: (command: ToolbarCommand) => void;
+}) {
   return (
     <section className="flex h-[88px] items-stretch overflow-x-auto border-b border-[#C8D3DC] bg-[#F4F7FA] px-2">
       {ribbonGroups.map((group, groupIndex) => (
@@ -287,13 +364,13 @@ function RibbonBar({ onOperation }: { onOperation: () => void }) {
         >
           {group.map((action) => {
             const Icon = action.icon;
-            const isOperation = action.label === "To Operation";
+            const disabled = commandState[action.command] === false;
             return (
               <button
                 key={action.label}
                 type="button"
-                disabled={action.disabled}
-                onClick={isOperation ? onOperation : undefined}
+                disabled={disabled}
+                onClick={() => onCommand(action.command)}
                 className="flex h-[72px] w-[74px] flex-col items-center justify-center gap-1 rounded-[4px] text-[11px] font-semibold text-[#2B3E4D] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Icon className="h-6 w-6" style={{ color: action.color }} strokeWidth={1.8} />

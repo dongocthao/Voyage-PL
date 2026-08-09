@@ -117,12 +117,22 @@ export function SectionTitle({ children }: { children: ReactNode }) {
 }
 
 /** Ô chọn (combobox) trong bảng */
-export function SelCell({ value, options }: { value?: string; options: string[] }) {
+export function SelCell({
+  value,
+  options,
+  onChange,
+}: {
+  value?: string;
+  options: string[];
+  onChange?: (value: string) => void;
+}) {
   return (
     <Select
       size="small"
       variant="borderless"
-      defaultValue={value || undefined}
+      value={onChange ? value || undefined : undefined}
+      defaultValue={onChange ? undefined : value || undefined}
+      onChange={onChange}
       style={{ width: "100%", fontSize: 11 }}
       options={options.map((o) => ({ value: o, label: o }))}
     />

@@ -23,6 +23,7 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import { VE_COLORS } from "./theme";
+import type { ToolbarCommand, ToolbarCommandState } from "./toolbarCommandManager";
 
 const DEFAULT_TABS = [
   { key: "voyage1", label: "voyage1", icon: <ProfileOutlined />, active: true },
@@ -38,102 +39,122 @@ export default function RibbonHeader({
   onSave,
   onOpen,
   onReload,
+  onCommand,
+  commandState,
+  showHeaderAndToolbar = true,
 }: {
   title?: string;
   tabs?: WorkTab[];
   onSave?: () => void;
   onOpen?: () => void;
   onReload?: () => void;
+  onCommand?: (command: ToolbarCommand) => void;
+  commandState?: Partial<ToolbarCommandState>;
+  showHeaderAndToolbar?: boolean;
 }) {
   const actions = [
-    { icon: <FileAddOutlined />, label: "New\nSheet" },
-    { icon: <DeleteOutlined />, label: "Delete\nSheet" },
-    { icon: <SaveOutlined />, label: "Save", onClick: onSave },
-    { icon: <CopyOutlined />, label: "Save\nas" },
-    { icon: <FolderOpenOutlined />, label: "Open", onClick: onOpen },
-    { icon: <ReloadOutlined />, label: "Reload", onClick: onReload },
-    { icon: <UndoOutlined />, label: "Undo" },
-    { icon: <RedoOutlined />, label: "Redo", disabled: true },
-    { icon: <PlusSquareOutlined />, label: "Increase" },
-    { icon: <MinusSquareOutlined />, label: "Decrease" },
-    { icon: <SettingOutlined />, label: "Options" },
-    { icon: <AppstoreOutlined />, label: "To\nOperation" },
+    { key: "new", icon: <FileAddOutlined />, label: "New\nSheet" },
+    { key: "delete", icon: <DeleteOutlined />, label: "Delete\nSheet" },
+    { key: "save", icon: <SaveOutlined />, label: "Save", onClick: onSave },
+    { key: "saveAs", icon: <CopyOutlined />, label: "Save\nas" },
+    { key: "open", icon: <FolderOpenOutlined />, label: "Open", onClick: onOpen },
+    { key: "reload", icon: <ReloadOutlined />, label: "Reload", onClick: onReload },
+    { key: "undo", icon: <UndoOutlined />, label: "Undo" },
+    { key: "redo", icon: <RedoOutlined />, label: "Redo" },
+    { key: "increase", icon: <PlusSquareOutlined />, label: "Increase" },
+    { key: "decrease", icon: <MinusSquareOutlined />, label: "Decrease" },
+    { key: "options", icon: <SettingOutlined />, label: "Options" },
+    { key: "toOperation", icon: <AppstoreOutlined />, label: "To\nOperation" },
   ];
 
   return (
     <div className="shrink-0">
-      <header
-        className="flex h-[36px] items-center justify-between px-3 text-white"
-        style={{ background: VE_COLORS.titleBar }}
-      >
-        <div className="flex items-center gap-2">
-          <span
-            className="flex h-[22px] w-[22px] items-center justify-center rounded-sm"
-            style={{ background: "rgba(255,255,255,.18)" }}
+      {showHeaderAndToolbar && (
+        <>
+          <header
+            className="flex h-[36px] items-center justify-between px-3 text-white"
+            style={{ background: VE_COLORS.titleBar }}
           >
-            <CompassOutlined style={{ fontSize: 14 }} />
-          </span>
-          <span className="text-[13px] font-bold tracking-wide">{title}</span>
-        </div>
-        <Space size={14} className="text-[14px]">
-          <Tooltip title="Settings">
-            <SettingOutlined />
-          </Tooltip>
-          <Tooltip title="Help">
-            <QuestionCircleOutlined />
-          </Tooltip>
-          <Badge dot color="#FF4D4F">
-            <BellOutlined style={{ color: "#fff" }} />
-          </Badge>
-          <span className="flex items-center gap-2">
-            <Avatar
-              size={22}
-              icon={<UserOutlined />}
-              style={{ background: "rgba(255,255,255,.25)" }}
-            />
-            <span className="text-[12px]">erin</span>
-          </span>
-        </Space>
-      </header>
-
-      <div className="border-b bg-white" style={{ borderColor: VE_COLORS.border }}>
-        <div className="flex h-[66px] items-stretch justify-start">
-          {actions.map((action, index) => (
-            <div
-              key={action.label}
-              className="flex items-center border-r px-[6px]"
-              style={{ borderColor: VE_COLORS.border }}
-            >
-              <button
-                type="button"
-                disabled={action.disabled}
-                onClick={action.onClick}
-                aria-label={action.label.replace("\n", " ")}
-                title={action.label.replace("\n", " ")}
-                className="flex h-[58px] min-w-[42px] flex-col items-center justify-center gap-[2px] text-[11px] leading-[12px] text-[#38576b] disabled:text-[#b8c3cc]"
+            <div className="flex items-center gap-2">
+              <span
+                className="flex h-[22px] w-[22px] items-center justify-center rounded-sm"
+                style={{ background: "rgba(255,255,255,.18)" }}
               >
-                <span
-                  className="text-[24px] leading-none"
-                  style={{
-                    color: action.disabled
-                      ? "#b8c3cc"
-                      : index === 4
-                        ? "#f6a040"
-                        : index === 5
-                          ? "#50b36b"
-                          : VE_COLORS.titleBar,
-                  }}
-                >
-                  {action.icon}
-                </span>
-                {action.label.split("\n").map((line) => (
-                  <span key={line}>{line}</span>
-                ))}
-              </button>
+                <CompassOutlined style={{ fontSize: 14 }} />
+              </span>
+              <span className="text-[13px] font-bold tracking-wide">{title}</span>
             </div>
-          ))}
-        </div>
-      </div>
+            <Space size={14} className="text-[14px]">
+              <Tooltip title="Settings">
+                <SettingOutlined />
+              </Tooltip>
+              <Tooltip title="Help">
+                <QuestionCircleOutlined />
+              </Tooltip>
+              <Badge dot color="#FF4D4F">
+                <BellOutlined style={{ color: "#fff" }} />
+              </Badge>
+              <span className="flex items-center gap-2">
+                <Avatar
+                  size={22}
+                  icon={<UserOutlined />}
+                  style={{ background: "rgba(255,255,255,.25)" }}
+                />
+                <span className="text-[12px]">erin</span>
+              </span>
+            </Space>
+          </header>
+
+          <div className="border-b bg-white" style={{ borderColor: VE_COLORS.border }}>
+            <div className="flex h-[66px] items-stretch justify-start">
+              {actions.map((action, index) => {
+                const command = action.key as ToolbarCommand;
+                const disabled = commandState?.[command] === false;
+                return (
+                  <div
+                    key={action.label}
+                    className="flex items-center border-r px-[6px]"
+                    style={{ borderColor: VE_COLORS.border }}
+                  >
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        if (onCommand) {
+                          onCommand(command);
+                        } else {
+                          action.onClick?.();
+                        }
+                      }}
+                      aria-label={action.label.replace("\n", " ")}
+                      title={action.label.replace("\n", " ")}
+                      className="flex h-[58px] min-w-[42px] flex-col items-center justify-center gap-[2px] text-[11px] leading-[12px] text-[#38576b] disabled:text-[#b8c3cc]"
+                    >
+                      <span
+                        className="text-[24px] leading-none"
+                        style={{
+                          color: disabled
+                            ? "#b8c3cc"
+                            : index === 4
+                              ? "#f6a040"
+                              : index === 5
+                                ? "#50b36b"
+                                : VE_COLORS.titleBar,
+                        }}
+                      >
+                        {action.icon}
+                      </span>
+                      {action.label.split("\n").map((line) => (
+                        <span key={line}>{line}</span>
+                      ))}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
 
       <div
         className="flex h-[28px] items-center justify-between border-b bg-[#F5F7FA] px-2"

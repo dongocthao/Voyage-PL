@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Alert, Input, Modal } from "antd";
 import EstimatorShell from "./EstimatorShell";
 import VesselSection from "./VesselSection";
@@ -20,6 +20,7 @@ import {
   type VoyageSnapshotResult,
 } from "@/lib/api/voyageSnapshots";
 import { fetchBunkerProfiles, fetchLookup, type LookupItem } from "@/lib/api/masterData";
+import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
 
 type VoyageModal = "loadable" | "freight" | "bunker" | "analyzer";
 type SnapshotDetails = Pick<
@@ -58,7 +59,11 @@ const defaultHeaderState: VoyageHeaderState = {
   timezoneDisplayMode: "PORT_LOCAL",
 };
 
-export default function VoyageEstimator() {
+export default function VoyageEstimator({
+  registerWorkspaceToolbar,
+}: {
+  registerWorkspaceToolbar?: RegisterWorkspaceToolbar;
+} = {}) {
   const [modal, setModal] = useState<VoyageModal | null>(null);
   const [remarkOpen, setRemarkOpen] = useState(false);
   const [cargoRows, setCargoRows] = useState<CargoRow[]>(cargoData);
@@ -68,6 +73,7 @@ export default function VoyageEstimator() {
   const [reloadKey, setReloadKey] = useState(0);
   const [estimateId, setEstimateId] = useState<string>();
   const [estimateFileId, setEstimateFileId] = useState<string>();
+  const [sheetExists, setSheetExists] = useState(true);
   const [loadEstimateId, setLoadEstimateId] = useState("");
   const [openPosition, setOpenPosition] = useState("");
   const [apiResult, setApiResult] = useState<VoyageSnapshotResult>();
@@ -102,6 +108,21 @@ export default function VoyageEstimator() {
     | { status: "loaded"; message: string }
     | { status: "error"; message: string; details?: string[] }
   >({ status: "idle" });
+  const workspaceToolbarActionsRef = useRef<{
+    resetSheet: () => void;
+    deleteSheet: () => void;
+    save: () => void;
+    load: () => void;
+    reload: () => void;
+    clear: () => void;
+  }>({
+    resetSheet: () => undefined,
+    deleteSheet: () => undefined,
+    save: () => undefined,
+    load: () => undefined,
+    reload: () => undefined,
+    clear: () => undefined,
+  });
 
   const formatError = (error: unknown, fallback: string) => {
     if (error instanceof VoyageApiError) {
@@ -136,7 +157,7 @@ export default function VoyageEstimator() {
     sum((snapshotDetails.miscOperationExpenseItems ?? []).map((item) => item.itemAmount)),
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let active = true;
     void Promise.all([
       fetchLookup("cargoes"),
@@ -241,6 +262,11 @@ export default function VoyageEstimator() {
   }, [headerState.vesselId]);
 
   const save = async () => {
+    if (!sheetExists) {
+      setSaveState({ status: "error", message: "Create a New Sheet before saving." });
+      return;
+    }
+
     const validationDetails = validateVoyageForm({
       header: headerState,
       cargoRows,
@@ -302,6 +328,11 @@ export default function VoyageEstimator() {
   };
 
   const load = async () => {
+    if (!sheetExists) {
+      setSaveState({ status: "error", message: "There is no sheet to open." });
+      return;
+    }
+
     const id = loadEstimateId.trim() || estimateId;
     if (!id) {
       setSaveState({ status: "error", message: "Enter an Estimate ID to load." });
@@ -357,6 +388,11 @@ export default function VoyageEstimator() {
   };
 
   const loadReportSummary = async () => {
+    if (!sheetExists) {
+      setSaveState({ status: "error", message: "There is no sheet to open." });
+      return;
+    }
+
     const id = loadEstimateId.trim() || estimateId;
     if (!id) {
       setSaveState({ status: "error", message: "Enter an Estimate ID to load report." });
@@ -374,6 +410,66 @@ export default function VoyageEstimator() {
       setSaveState({ status: "error", message: formatted.message, details: formatted.details });
     }
   };
+
+  const resetSheet = () => {
+    setCargoSeedRows(cargoData);
+    setPortSeedRows(portRotationData);
+    setCargoRows(cargoData);
+    setPortRows(portRotationData);
+    setEstimateId(undefined);
+    setEstimateFileId(undefined);
+    setLoadEstimateId("");
+    setOpenPosition("");
+    setApiResult(undefined);
+    setSnapshotDetails({});
+    setHeaderState(defaultHeaderState);
+    setSheetExists(true);
+    setReloadKey((key) => key + 1);
+    setSaveState({ status: "idle" });
+  };
+
+  const deleteSheet = () => {
+    setCargoSeedRows([]);
+    setPortSeedRows([]);
+    setCargoRows([]);
+    setPortRows([]);
+    setEstimateId(undefined);
+    setEstimateFileId(undefined);
+    setLoadEstimateId("");
+    setApiResult(undefined);
+    setSnapshotDetails({});
+    setSheetExists(false);
+    setReloadKey((key) => key + 1);
+    setSaveState({ status: "idle" });
+  };
+
+  workspaceToolbarActionsRef.current = {
+    resetSheet,
+    deleteSheet,
+    save: () => void save(),
+    load: () => void load(),
+    reload: () => void loadReportSummary(),
+    clear: () => setSaveState({ status: "idle" }),
+  };
+
+  useEffect(() => {
+    registerWorkspaceToolbar?.({
+      hasSheet: sheetExists,
+      hasEstimate: Boolean(estimateId),
+      execute: {
+        new: () => workspaceToolbarActionsRef.current.resetSheet(),
+        delete: () => workspaceToolbarActionsRef.current.deleteSheet(),
+        save: () => workspaceToolbarActionsRef.current.save(),
+        saveAs: () => workspaceToolbarActionsRef.current.save(),
+        open: () => workspaceToolbarActionsRef.current.load(),
+        reload: () => workspaceToolbarActionsRef.current.reload(),
+        undo: () => workspaceToolbarActionsRef.current.clear(),
+        increase: () => workspaceToolbarActionsRef.current.clear(),
+        decrease: () => workspaceToolbarActionsRef.current.clear(),
+        options: () => workspaceToolbarActionsRef.current.clear(),
+      },
+    });
+  }, [estimateId, registerWorkspaceToolbar, sheetExists]);
 
   return (
     <EstimatorShell sheetKind="voyage" onSave={save} onOpen={load} onReload={loadReportSummary}>
@@ -476,6 +572,7 @@ export default function VoyageEstimator() {
         initialRows={portSeedRows}
         reloadKey={reloadKey}
         ports={lookups.ports}
+        cargoRows={cargoRows}
       />
       <BottomPanels
         onOpenBunkerSimulator={() => setModal("bunker")}
