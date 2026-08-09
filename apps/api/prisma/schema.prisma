@@ -1,0 +1,1266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_bunker_by_activity {
+  id               BigInt                      @id @default(autoincrement())
+  actual_voyage_id BigInt
+  fuel_type_id     Int                         @db.SmallInt
+  activity         actual_consumption_activity
+  consumption_mt   Decimal                     @default(0) @db.Decimal(12, 3)
+  actual_voyages   actual_voyages              @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  fuel_types       fuel_types                  @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([actual_voyage_id, fuel_type_id, activity], map: "actual_voyage_bunker_by_activ_actual_voyage_id_fuel_type_id_key")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_bunker_opening_closing {
+  id               BigInt         @id @default(autoincrement())
+  actual_voyage_id BigInt
+  fuel_type_id     Int            @db.SmallInt
+  opening_rob_mt   Decimal        @default(0) @db.Decimal(12, 3)
+  closing_rob_mt   Decimal?       @db.Decimal(12, 3)
+  actual_voyages   actual_voyages @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  fuel_types       fuel_types     @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([actual_voyage_id, fuel_type_id], map: "actual_voyage_bunker_opening__actual_voyage_id_fuel_type_id_key")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_bunker_readings {
+  id                   BigInt               @id @default(autoincrement())
+  event_id             BigInt
+  fuel_type_id         Int                  @db.SmallInt
+  rob_mt               Decimal?             @db.Decimal(12, 3)
+  supply_qty_mt        Decimal?             @db.Decimal(12, 3)
+  supply_unit_price    Decimal?             @db.Decimal(12, 2)
+  actual_voyage_events actual_voyage_events @relation(fields: [event_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  fuel_types           fuel_types           @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([event_id, fuel_type_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_bunker_summary {
+  id                   BigInt         @id @default(autoincrement())
+  actual_voyage_id     BigInt
+  fuel_type_id         Int            @db.SmallInt
+  total_supply_mt      Decimal?       @db.Decimal(12, 3)
+  total_consumption_mt Decimal?       @db.Decimal(12, 3)
+  weighted_avg_price   Decimal?       @db.Decimal(12, 2)
+  total_cost           Decimal?       @db.Decimal(18, 2)
+  actual_voyages       actual_voyages @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  fuel_types           fuel_types     @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([actual_voyage_id, fuel_type_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_cargo_freight_terms {
+  id                                                                   BigInt                    @id @default(autoincrement())
+  cargo_line_id                                                        BigInt
+  cp_side                                                              cp_side                   @default(HEAD)
+  freight_rate                                                         Decimal?                  @db.Decimal(12, 3)
+  freight_term_id                                                      Int?                      @db.SmallInt
+  add_comm_pct                                                         Decimal?                  @db.Decimal(6, 3)
+  brokerage_pct                                                        Decimal?                  @db.Decimal(6, 3)
+  freight_tax_pct                                                      Decimal?                  @db.Decimal(6, 3)
+  liner_terms_id                                                       Int?                      @db.SmallInt
+  net_freight                                                          Decimal?                  @db.Decimal(18, 2)
+  total_freight                                                        Decimal?                  @db.Decimal(18, 2)
+  actual_voyage_cargo_lines                                            actual_voyage_cargo_lines @relation(fields: [cargo_line_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  cp_terms_actual_voyage_cargo_freight_terms_freight_term_idTocp_terms cp_terms?                 @relation("actual_voyage_cargo_freight_terms_freight_term_idTocp_terms", fields: [freight_term_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cp_terms_actual_voyage_cargo_freight_terms_liner_terms_idTocp_terms  cp_terms?                 @relation("actual_voyage_cargo_freight_terms_liner_terms_idTocp_terms", fields: [liner_terms_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([cargo_line_id, cp_side])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_cargo_lines {
+  id                                                         BigInt                              @id @default(autoincrement())
+  actual_voyage_id                                           BigInt
+  estimate_cargo_line_id                                     BigInt?
+  line_no                                                    Int                                 @db.SmallInt
+  account_company_id                                         BigInt?
+  cargo_name                                                 String?                             @db.VarChar(150)
+  loading_port_id                                            BigInt?
+  discharging_port_id                                        BigInt?
+  bl_quantity_mt                                             Decimal                             @db.Decimal(12, 2)
+  remark                                                     String?
+  cargo_id                                                   BigInt?
+  actual_voyage_cargo_freight_terms                          actual_voyage_cargo_freight_terms[]
+  actual_voyages                                             actual_voyages                      @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  cargoes                                                    cargoes?                            @relation(fields: [cargo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ports_actual_voyage_cargo_lines_discharging_port_idToports ports?                              @relation("actual_voyage_cargo_lines_discharging_port_idToports", fields: [discharging_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  estimate_cargo_lines                                       estimate_cargo_lines?               @relation(fields: [estimate_cargo_line_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ports_actual_voyage_cargo_lines_loading_port_idToports     ports?                              @relation("actual_voyage_cargo_lines_loading_port_idToports", fields: [loading_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  companies                                                  companies?                          @relation(fields: [account_company_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_act_cargo_lines_account")
+
+  @@unique([actual_voyage_id, line_no])
+  @@index([cargo_id], map: "idx_act_cargo_lines_cargo")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_durations {
+  id                BigInt         @id @default(autoincrement())
+  actual_voyage_id  BigInt         @unique
+  voyage_total_days Decimal?       @db.Decimal(8, 2)
+  sea_days          Decimal?       @db.Decimal(8, 2)
+  port_days         Decimal?       @db.Decimal(8, 2)
+  laden_days        Decimal?       @db.Decimal(8, 2)
+  ballast_days      Decimal?       @db.Decimal(8, 2)
+  anchor_drift_days Decimal?       @db.Decimal(8, 2)
+  load_days         Decimal?       @db.Decimal(8, 2)
+  discharge_days    Decimal?       @db.Decimal(8, 2)
+  idle_days         Decimal?       @db.Decimal(8, 2)
+  channel_days      Decimal?       @db.Decimal(8, 2)
+  calculated_at     DateTime       @default(now()) @db.Timestamptz(6)
+  actual_voyages    actual_voyages @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_events {
+  id                            BigInt                          @id @default(autoincrement())
+  actual_voyage_id              BigInt
+  leg_id                        BigInt?
+  port_call_id                  BigInt?
+  event_type                    voyage_event_type
+  event_time                    DateTime                        @db.Timestamptz(6)
+  shift_no                      Int                             @default(1) @db.SmallInt
+  remark                        String?
+  actual_voyage_bunker_readings actual_voyage_bunker_readings[]
+  actual_voyages                actual_voyages                  @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  actual_voyage_legs            actual_voyage_legs?             @relation(fields: [leg_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actual_voyage_port_calls      actual_voyage_port_calls?       @relation(fields: [port_call_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([actual_voyage_id, event_time], map: "idx_actual_events_voyage")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_expense_items {
+  id                 BigInt             @id @default(autoincrement())
+  actual_voyage_id   BigInt
+  category_id        Int                @db.SmallInt
+  cp_side            cp_side?
+  amount             Decimal            @db.Decimal(18, 2)
+  remark             String?
+  actual_voyages     actual_voyages     @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  expense_categories expense_categories @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([actual_voyage_id, category_id, cp_side])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_legs {
+  id                                           BigInt                 @id @default(autoincrement())
+  actual_voyage_id                             BigInt
+  leg_no                                       Int                    @db.SmallInt
+  from_port_id                                 BigInt?
+  to_port_id                                   BigInt?
+  leg_status                                   actual_leg_status
+  remark                                       String?
+  actual_voyage_events                         actual_voyage_events[]
+  actual_voyages                               actual_voyages         @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ports_actual_voyage_legs_from_port_idToports ports?                 @relation("actual_voyage_legs_from_port_idToports", fields: [from_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ports_actual_voyage_legs_to_port_idToports   ports?                 @relation("actual_voyage_legs_to_port_idToports", fields: [to_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([actual_voyage_id, leg_no])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_off_hire_additional_costs {
+  id                      BigInt                  @id @default(autoincrement())
+  off_hire_id             BigInt
+  line_no                 Int                     @db.SmallInt
+  description             String                  @db.VarChar(200)
+  amount                  Decimal                 @db.Decimal(18, 2)
+  actual_voyage_off_hires actual_voyage_off_hires @relation(fields: [off_hire_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([off_hire_id, line_no])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_off_hire_bunker {
+  id                      BigInt                  @id @default(autoincrement())
+  off_hire_id             BigInt
+  fuel_type_id            Int                     @db.SmallInt
+  quantity_mt             Decimal                 @default(0) @db.Decimal(12, 3)
+  unit_price              Decimal?                @db.Decimal(12, 2)
+  amount                  Decimal?                @db.Decimal(18, 2)
+  fuel_types              fuel_types              @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actual_voyage_off_hires actual_voyage_off_hires @relation(fields: [off_hire_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([off_hire_id, fuel_type_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_off_hires {
+  id                                                BigInt                                    @id @default(autoincrement())
+  actual_voyage_id                                  BigInt
+  place_type                                        off_hire_place
+  from_port_id                                      BigInt?
+  to_port_id                                        BigInt?
+  due_to                                            String                                    @db.VarChar(255)
+  from_at                                           DateTime                                  @db.Timestamptz(6)
+  to_at                                             DateTime                                  @db.Timestamptz(6)
+  tz_offset_min                                     Int?                                      @db.SmallInt
+  rate_pct                                          Decimal                                   @default(100) @db.Decimal(6, 3)
+  net_duration_days                                 Decimal?                                  @db.Decimal(8, 3)
+  daily_hire                                        Decimal                                   @db.Decimal(18, 2)
+  gross_hire_amount                                 Decimal?                                  @db.Decimal(18, 2)
+  add_comm_pct                                      Decimal?                                  @db.Decimal(6, 3)
+  net_hire_amount                                   Decimal?                                  @db.Decimal(18, 2)
+  cev_amount                                        Decimal                                   @default(0) @db.Decimal(18, 2)
+  total_off_hire_amount                             Decimal?                                  @db.Decimal(18, 2)
+  remark                                            String?
+  created_at                                        DateTime                                  @default(now()) @db.Timestamptz(6)
+  updated_at                                        DateTime                                  @default(now()) @db.Timestamptz(6)
+  updated_by                                        BigInt?
+  actual_voyage_off_hire_additional_costs           actual_voyage_off_hire_additional_costs[]
+  actual_voyage_off_hire_bunker                     actual_voyage_off_hire_bunker[]
+  actual_voyages                                    actual_voyages                            @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ports_actual_voyage_off_hires_from_port_idToports ports?                                    @relation("actual_voyage_off_hires_from_port_idToports", fields: [from_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ports_actual_voyage_off_hires_to_port_idToports   ports?                                    @relation("actual_voyage_off_hires_to_port_idToports", fields: [to_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                             users?                                    @relation(fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_port_call_durations {
+  id                       BigInt                   @id @default(autoincrement())
+  port_call_id             BigInt                   @unique
+  port_days                Decimal?                 @db.Decimal(8, 2)
+  anchor_days              Decimal?                 @db.Decimal(8, 2)
+  channel_days             Decimal?                 @db.Decimal(8, 2)
+  load_days                Decimal?                 @db.Decimal(8, 2)
+  discharge_days           Decimal?                 @db.Decimal(8, 2)
+  idle_days                Decimal?                 @db.Decimal(8, 2)
+  actual_voyage_port_calls actual_voyage_port_calls @relation(fields: [port_call_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_port_call_expenses {
+  id                       BigInt                   @id @default(autoincrement())
+  port_call_id             BigInt
+  category_id              Int                      @db.SmallInt
+  amount                   Decimal                  @db.Decimal(18, 2)
+  remark                   String?
+  expense_categories       expense_categories       @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actual_voyage_port_calls actual_voyage_port_calls @relation(fields: [port_call_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([port_call_id, category_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyage_port_calls {
+  id                                BigInt                             @id @default(autoincrement())
+  actual_voyage_id                  BigInt
+  call_no                           Int                                @db.SmallInt
+  port_id                           BigInt?
+  call_purpose                      String                             @db.VarChar(20)
+  remark                            String?
+  actual_voyage_events              actual_voyage_events[]
+  actual_voyage_port_call_durations actual_voyage_port_call_durations?
+  actual_voyage_port_call_expenses  actual_voyage_port_call_expenses[]
+  actual_voyages                    actual_voyages                     @relation(fields: [actual_voyage_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ports                             ports?                             @relation(fields: [port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([actual_voyage_id, call_no])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model actual_voyages {
+  id                                   BigInt                                 @id @default(autoincrement())
+  estimate_id                          BigInt?
+  vessel_id                            BigInt
+  voyage_code                          String                                 @db.VarChar(50)
+  voyage_type                          estimate_type
+  status                               String                                 @default("ONGOING") @db.VarChar(20)
+  currency                             String                                 @default("USD") @db.Char(3)
+  created_at                           DateTime                               @default(now()) @db.Timestamptz(6)
+  updated_at                           DateTime                               @default(now()) @db.Timestamptz(6)
+  updated_by                           BigInt?
+  actual_voyage_bunker_by_activity     actual_voyage_bunker_by_activity[]
+  actual_voyage_bunker_opening_closing actual_voyage_bunker_opening_closing[]
+  actual_voyage_bunker_summary         actual_voyage_bunker_summary[]
+  actual_voyage_cargo_lines            actual_voyage_cargo_lines[]
+  actual_voyage_durations              actual_voyage_durations?
+  actual_voyage_events                 actual_voyage_events[]
+  actual_voyage_expense_items          actual_voyage_expense_items[]
+  actual_voyage_legs                   actual_voyage_legs[]
+  actual_voyage_off_hires              actual_voyage_off_hires[]
+  actual_voyage_port_calls             actual_voyage_port_calls[]
+  estimates                            estimates?                             @relation(fields: [estimate_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                users?                                 @relation(fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vessels                              vessels                                @relation(fields: [vessel_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  voyage_variances                     voyage_variances[]
+
+  @@unique([vessel_id, voyage_code], map: "uq_actual_voyages_code")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model addresses {
+  id                BigInt           @id @default(autoincrement())
+  company_id        BigInt?
+  contact_person_id BigInt?
+  label             String           @default("Address") @db.VarChar(50)
+  country_id        Int?             @db.SmallInt
+  province          String?          @db.VarChar(100)
+  post_code         String?          @db.VarChar(20)
+  city              String?          @db.VarChar(100)
+  detail            String?
+  sort_order        Int              @default(1) @db.SmallInt
+  companies         companies?       @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  contact_persons   contact_persons? @relation(fields: [contact_person_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  countries         countries?       @relation(fields: [country_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([company_id], map: "idx_addresses_company")
+  @@index([contact_person_id], map: "idx_addresses_contact")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model business_types {
+  id                     Int                      @id @default(autoincrement()) @db.SmallInt
+  code                   String                   @unique @db.VarChar(30)
+  name                   String                   @db.VarChar(100)
+  company_business_types company_business_types[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model companies {
+  id                                                                BigInt                      @id @default(autoincrement())
+  company_name                                                      String                      @db.VarChar(200)
+  country_id                                                        Int?                        @db.SmallInt
+  time_zone                                                         String?                     @db.VarChar(10)
+  remark                                                            String?
+  created_at                                                        DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                                        DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_by                                                        BigInt?
+  actual_voyage_cargo_lines                                         actual_voyage_cargo_lines[]
+  addresses                                                         addresses[]
+  countries                                                         countries?                  @relation(fields: [country_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                                             users?                      @relation(fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  company_aliases                                                   company_aliases[]
+  company_business_types                                            company_business_types[]
+  company_relations_company_relations_company_idTocompanies         company_relations[]         @relation("company_relations_company_idTocompanies")
+  company_relations_company_relations_related_company_idTocompanies company_relations[]         @relation("company_relations_related_company_idTocompanies")
+  contact_channels                                                  contact_channels[]
+  contact_persons                                                   contact_persons[]
+  estimate_cargo_lines                                              estimate_cargo_lines[]
+  estimate_charter_terms                                            estimate_charter_terms[]
+  vessels                                                           vessels[]
+
+  @@index([company_name], map: "idx_companies_name")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model company_aliases {
+  id         BigInt    @id @default(autoincrement())
+  company_id BigInt
+  alias      String    @db.VarChar(200)
+  companies  companies @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([company_id, alias])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model company_business_types {
+  company_id       BigInt
+  business_type_id Int            @db.SmallInt
+  business_types   business_types @relation(fields: [business_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  companies        companies      @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([company_id, business_type_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model company_relations {
+  id                                                        BigInt    @id @default(autoincrement())
+  company_id                                                BigInt
+  related_company_id                                        BigInt
+  relation_note                                             String?   @db.VarChar(200)
+  companies_company_relations_company_idTocompanies         companies @relation("company_relations_company_idTocompanies", fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  companies_company_relations_related_company_idTocompanies companies @relation("company_relations_related_company_idTocompanies", fields: [related_company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([company_id, related_company_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model contact_channels {
+  id                BigInt               @id @default(autoincrement())
+  company_id        BigInt?
+  contact_person_id BigInt?
+  channel_type      contact_channel_type
+  country_code      String?              @db.VarChar(5)
+  im_type_id        Int?                 @db.SmallInt
+  value             String               @db.VarChar(200)
+  sort_order        Int                  @default(1) @db.SmallInt
+  companies         companies?           @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  contact_persons   contact_persons?     @relation(fields: [contact_person_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  im_types          im_types?            @relation(fields: [im_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([company_id], map: "idx_contact_channels_company")
+  @@index([contact_person_id], map: "idx_contact_channels_contact")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model contact_persons {
+  id               BigInt             @id @default(autoincrement())
+  company_id       BigInt
+  full_name        String             @db.VarChar(150)
+  division         String?            @db.VarChar(100)
+  title            String?            @db.VarChar(100)
+  remark           String?
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_by       BigInt?
+  addresses        addresses[]
+  contact_channels contact_channels[]
+  companies        companies          @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users            users?             @relation(fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([company_id], map: "idx_contact_persons_company")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model countries {
+  id        Int         @id @default(autoincrement()) @db.SmallInt
+  iso_code  String      @unique @db.Char(2)
+  name      String      @db.VarChar(100)
+  addresses addresses[]
+  companies companies[]
+  ports     ports[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cp_terms {
+  id                                                                                            Int                                 @id @default(autoincrement()) @db.SmallInt
+  code                                                                                          String                              @unique @db.VarChar(15)
+  term                                                                                          String                              @db.VarChar(50)
+  paragraph                                                                                     String?
+  actual_voyage_cargo_freight_terms_actual_voyage_cargo_freight_terms_freight_term_idTocp_terms actual_voyage_cargo_freight_terms[] @relation("actual_voyage_cargo_freight_terms_freight_term_idTocp_terms")
+  actual_voyage_cargo_freight_terms_actual_voyage_cargo_freight_terms_liner_terms_idTocp_terms  actual_voyage_cargo_freight_terms[] @relation("actual_voyage_cargo_freight_terms_liner_terms_idTocp_terms")
+  estimate_cargo_freight_terms_estimate_cargo_freight_terms_freight_term_idTocp_terms           estimate_cargo_freight_terms[]      @relation("estimate_cargo_freight_terms_freight_term_idTocp_terms")
+  estimate_cargo_freight_terms_estimate_cargo_freight_terms_liner_terms_idTocp_terms            estimate_cargo_freight_terms[]      @relation("estimate_cargo_freight_terms_liner_terms_idTocp_terms")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model departments {
+  id        Int         @id @default(autoincrement()) @db.SmallInt
+  code      String      @unique @db.VarChar(30)
+  name      String      @db.VarChar(100)
+  estimates estimates[]
+  users     users[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_bunker_opening_rob {
+  id           BigInt     @id @default(autoincrement())
+  estimate_id  BigInt
+  fuel_type_id Int        @db.SmallInt
+  start_rob_mt Decimal    @default(0) @db.Decimal(12, 3)
+  estimates    estimates  @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  fuel_types   fuel_types @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([estimate_id, fuel_type_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_bunker_summary {
+  id             BigInt     @id @default(autoincrement())
+  estimate_id    BigInt
+  fuel_type_id   Int        @db.SmallInt
+  price_per_mt   Decimal?   @db.Decimal(12, 2)
+  consumption_mt Decimal?   @db.Decimal(12, 3)
+  expense        Decimal?   @db.Decimal(18, 2)
+  estimates      estimates  @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  fuel_types     fuel_types @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([estimate_id, fuel_type_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_cargo_freight_terms {
+  id                                                              BigInt               @id @default(autoincrement())
+  cargo_line_id                                                   BigInt
+  cp_side                                                         cp_side              @default(HEAD)
+  freight_rate                                                    Decimal?             @db.Decimal(12, 3)
+  freight_term_id                                                 Int?                 @db.SmallInt
+  add_comm_pct                                                    Decimal?             @db.Decimal(6, 3)
+  brokerage_pct                                                   Decimal?             @db.Decimal(6, 3)
+  freight_tax_pct                                                 Decimal?             @db.Decimal(6, 3)
+  liner_terms_id                                                  Int?                 @db.SmallInt
+  net_freight                                                     Decimal?             @db.Decimal(18, 2)
+  total_freight                                                   Decimal?             @db.Decimal(18, 2)
+  is_freight_fixed                                                Boolean              @default(false)
+  freight_type                                                    String               @default("F") @db.Char(1)
+  freight_lumpsum                                                 Decimal?             @db.Decimal(18, 2)
+  liner_cost_amount                                               Decimal?             @db.Decimal(18, 2)
+  estimate_cargo_lines                                            estimate_cargo_lines @relation(fields: [cargo_line_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  cp_terms_estimate_cargo_freight_terms_freight_term_idTocp_terms cp_terms?            @relation("estimate_cargo_freight_terms_freight_term_idTocp_terms", fields: [freight_term_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cp_terms_estimate_cargo_freight_terms_liner_terms_idTocp_terms  cp_terms?            @relation("estimate_cargo_freight_terms_liner_terms_idTocp_terms", fields: [liner_terms_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([cargo_line_id, cp_side])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_cargo_lines {
+  id                                                    BigInt                         @id @default(autoincrement())
+  estimate_id                                           BigInt
+  line_no                                               Int                            @db.SmallInt
+  account_company_id                                    BigInt?
+  cargo_name                                            String?                        @db.VarChar(150)
+  loading_port_id                                       BigInt?
+  discharging_port_id                                   BigInt?
+  quantity_mt                                           Decimal?                       @db.Decimal(12, 2)
+  remark                                                String?
+  quantity_unit                                         String                         @default("MT") @db.VarChar(20)
+  cargo_id                                              BigInt?
+  actual_voyage_cargo_lines                             actual_voyage_cargo_lines[]
+  estimate_cargo_freight_terms                          estimate_cargo_freight_terms[]
+  cargoes                                               cargoes?                       @relation(fields: [cargo_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ports_estimate_cargo_lines_discharging_port_idToports ports?                         @relation("estimate_cargo_lines_discharging_port_idToports", fields: [discharging_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  estimates                                             estimates                      @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ports_estimate_cargo_lines_loading_port_idToports     ports?                         @relation("estimate_cargo_lines_loading_port_idToports", fields: [loading_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  companies                                             companies?                     @relation(fields: [account_company_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_est_cargo_lines_account")
+
+  @@unique([estimate_id, line_no])
+  @@index([estimate_id], map: "idx_cargo_lines_estimate")
+  @@index([cargo_id], map: "idx_est_cargo_lines_cargo")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_charter_duration_periods {
+  id                     BigInt                 @id @default(autoincrement())
+  charter_term_id        BigInt
+  period_no              Int                    @db.SmallInt
+  duration_days          Decimal                @db.Decimal(8, 2)
+  daily_hire             Decimal                @db.Decimal(18, 2)
+  estimate_charter_terms estimate_charter_terms @relation(fields: [charter_term_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([charter_term_id, period_no])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_charter_terms {
+  id                                                     BigInt                              @id @default(autoincrement())
+  estimate_id                                            BigInt
+  cp_side                                                cp_side
+  account_company_id                                     BigInt?
+  delivery_port_id                                       BigInt?
+  redelivery_port_id                                     BigInt?
+  duration_days                                          Decimal?                            @db.Decimal(8, 2)
+  daily_hire                                             Decimal?                            @db.Decimal(18, 2)
+  gross_hire                                             Decimal?                            @db.Decimal(18, 2)
+  add_comm_pct                                           Decimal?                            @db.Decimal(6, 3)
+  brokerage_pct                                          Decimal?                            @db.Decimal(6, 3)
+  use_multi_duration                                     Boolean                             @default(false)
+  estimate_charter_duration_periods                      estimate_charter_duration_periods[]
+  ports_estimate_charter_terms_delivery_port_idToports   ports?                              @relation("estimate_charter_terms_delivery_port_idToports", fields: [delivery_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  estimates                                              estimates                           @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ports_estimate_charter_terms_redelivery_port_idToports ports?                              @relation("estimate_charter_terms_redelivery_port_idToports", fields: [redelivery_port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  companies                                              companies?                          @relation(fields: [account_company_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_est_charter_terms_account")
+
+  @@unique([estimate_id, cp_side])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_expense_items {
+  id                 BigInt             @id @default(autoincrement())
+  estimate_id        BigInt
+  category_id        Int                @db.SmallInt
+  cp_side            cp_side?
+  amount             Decimal            @db.Decimal(18, 2)
+  remark             String?
+  expense_categories expense_categories @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  estimates          estimates          @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([estimate_id, category_id, cp_side])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_files {
+  id                                     BigInt      @id @default(autoincrement())
+  file_name                              String      @db.VarChar(150)
+  description                            String?
+  created_at                             DateTime    @default(now()) @db.Timestamptz(6)
+  created_by                             BigInt?
+  updated_at                             DateTime    @default(now()) @db.Timestamptz(6)
+  updated_by                             BigInt?
+  users_estimate_files_created_byTousers users?      @relation("estimate_files_created_byTousers", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_estimate_files_updated_byTousers users?      @relation("estimate_files_updated_byTousers", fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  estimates                              estimates[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_leg_bunker_rob {
+  id                          BigInt             @id @default(autoincrement())
+  leg_id                      BigInt
+  fuel_type_id                Int                @db.SmallInt
+  arrival_supply_qty          Decimal            @default(0) @db.Decimal(12, 3)
+  arrival_supply_unit_price   Decimal?           @db.Decimal(12, 2)
+  departure_supply_qty        Decimal            @default(0) @db.Decimal(12, 3)
+  departure_supply_unit_price Decimal?           @db.Decimal(12, 2)
+  arrival_rob_mt              Decimal?           @db.Decimal(12, 3)
+  departure_rob_mt            Decimal?           @db.Decimal(12, 3)
+  consumption_sea_mt          Decimal            @default(0) @db.Decimal(12, 3)
+  consumption_port_mt         Decimal            @default(0) @db.Decimal(12, 3)
+  fuel_types                  fuel_types         @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  estimate_port_legs          estimate_port_legs @relation(fields: [leg_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([leg_id, fuel_type_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_port_leg_cp_terms {
+  id                 BigInt             @id @default(autoincrement())
+  leg_id             BigInt
+  cp_side            cp_side
+  ld_rate            Decimal?           @db.Decimal(12, 2)
+  laytime_term_id    Int?               @db.SmallInt
+  demurrage          Decimal?           @db.Decimal(18, 2)
+  despatch           Decimal?           @db.Decimal(18, 2)
+  laytime_terms      laytime_terms?     @relation(fields: [laytime_term_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  estimate_port_legs estimate_port_legs @relation(fields: [leg_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([leg_id, cp_side])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_port_legs {
+  id                         BigInt                       @id @default(autoincrement())
+  estimate_id                BigInt
+  leg_no                     Int                          @db.SmallInt
+  leg_type                   leg_type
+  port_id                    BigInt?
+  distance_nm                Decimal?                     @db.Decimal(10, 2)
+  eca_nm                     Decimal?                     @db.Decimal(10, 2)
+  wf_pct                     Decimal?                     @db.Decimal(6, 3)
+  speed_kn                   Decimal?                     @db.Decimal(5, 2)
+  sea_days                   Decimal?                     @db.Decimal(8, 2)
+  port_idle_days             Decimal?                     @db.Decimal(8, 2)
+  port_charge                Decimal?                     @db.Decimal(18, 2)
+  arrival_at                 DateTime?                    @db.Timestamptz(6)
+  departure_at               DateTime?                    @db.Timestamptz(6)
+  remark                     String?
+  estimate_leg_bunker_rob    estimate_leg_bunker_rob[]
+  estimate_port_leg_cp_terms estimate_port_leg_cp_terms[]
+  estimates                  estimates                    @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ports                      ports?                       @relation(fields: [port_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([estimate_id, leg_no])
+  @@index([estimate_id], map: "idx_port_legs_estimate")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_results {
+  id                  BigInt      @id @default(autoincrement())
+  estimate_id         BigInt
+  side                result_side @default(TOTAL)
+  total_duration_days Decimal?    @db.Decimal(8, 2)
+  total_distance_nm   Decimal?    @db.Decimal(10, 2)
+  revenue             Decimal?    @db.Decimal(18, 2)
+  op_expense          Decimal?    @db.Decimal(18, 2)
+  op_profit           Decimal?    @db.Decimal(18, 2)
+  total_hire          Decimal?    @db.Decimal(18, 2)
+  total_freight       Decimal?    @db.Decimal(18, 2)
+  profit_usd          Decimal?    @db.Decimal(18, 2)
+  profit_rate_pct     Decimal?    @db.Decimal(6, 3)
+  tce_usd_day         Decimal?    @db.Decimal(18, 2)
+  daily_revenue       Decimal?    @db.Decimal(18, 2)
+  daily_expense       Decimal?    @db.Decimal(18, 2)
+  daily_profit        Decimal?    @db.Decimal(18, 2)
+  calculated_at       DateTime    @default(now()) @db.Timestamptz(6)
+  estimates           estimates   @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([estimate_id, side])
+  @@index([profit_usd], map: "idx_estimate_results_profit")
+  @@index([tce_usd_day], map: "idx_estimate_results_tce")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_vessel_bunker {
+  id                 BigInt           @id @default(autoincrement())
+  estimate_vessel_id BigInt
+  fuel_role          fuel_role
+  condition          fuel_condition
+  fuel_type_id       Int              @db.SmallInt
+  activity           vessel_activity
+  consumption_mt_day Decimal          @db.Decimal(8, 3)
+  estimate_vessels   estimate_vessels @relation(fields: [estimate_vessel_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  fuel_types         fuel_types       @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([estimate_vessel_id, fuel_role, condition, activity])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_vessels {
+  id                     BigInt                   @id @default(autoincrement())
+  estimate_id            BigInt                   @unique
+  vessel_id              BigInt?
+  bunker_profile_id      BigInt?
+  mode                   perf_mode                @default(FULL)
+  mv_name                String                   @db.VarChar(150)
+  dwt                    Decimal?                 @db.Decimal(10, 2)
+  draft_m                Decimal?                 @db.Decimal(6, 2)
+  tpc                    Decimal?                 @db.Decimal(8, 3)
+  built_year             Int?                     @db.SmallInt
+  vessel_kind_id         Int?                     @db.SmallInt
+  vessel_type_id         Int?                     @db.SmallInt
+  speed_ballast_kn       Decimal                  @db.Decimal(5, 2)
+  speed_laden_kn         Decimal                  @db.Decimal(5, 2)
+  estimate_vessel_bunker estimate_vessel_bunker[]
+  vessel_bunker_profiles vessel_bunker_profiles?  @relation(fields: [bunker_profile_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  estimates              estimates                @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  vessels                vessels?                 @relation(fields: [vessel_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vessel_kinds           vessel_kinds?            @relation(fields: [vessel_kind_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vessel_types           vessel_types?            @relation(fields: [vessel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_voyage_durations {
+  id                BigInt    @id @default(autoincrement())
+  estimate_id       BigInt    @unique
+  voyage_total_days Decimal?  @db.Decimal(8, 2)
+  laden_days        Decimal?  @db.Decimal(8, 2)
+  ballast_days      Decimal?  @db.Decimal(8, 2)
+  eca_days          Decimal?  @db.Decimal(8, 2)
+  load_days         Decimal?  @db.Decimal(8, 2)
+  discharge_days    Decimal?  @db.Decimal(8, 2)
+  idle_days         Decimal?  @db.Decimal(8, 2)
+  margin_days       Decimal?  @db.Decimal(8, 2)
+  calculated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  estimates         estimates @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimates {
+  id                                      BigInt                                  @id @default(autoincrement())
+  estimate_file_id                        BigInt
+  estimate_type                           estimate_type
+  sheet_name                              String                                  @db.VarChar(100)
+  sheet_order                             Int                                     @default(1) @db.SmallInt
+  status                                  estimate_status                         @default(DRAFT)
+  currency                                String                                  @default("USD") @db.Char(3)
+  routing_suez                            Boolean                                 @default(false)
+  routing_panama                          Boolean                                 @default(false)
+  routing_kiel                            Boolean                                 @default(false)
+  margin_days                             Decimal                                 @default(0) @db.Decimal(6, 2)
+  operator_user_id                        BigInt?
+  operation_dept_id                       Int?                                    @db.SmallInt
+  remark                                  String?
+  created_at                              DateTime                                @default(now()) @db.Timestamptz(6)
+  updated_at                              DateTime                                @default(now()) @db.Timestamptz(6)
+  updated_by                              BigInt?
+  voyage_no                               String?                                 @db.VarChar(50)
+  margin_sea_days                         Decimal                                 @default(0) @db.Decimal(8, 2)
+  margin_port_idle_days                   Decimal                                 @default(0) @db.Decimal(8, 2)
+  hire_day                                Decimal?                                @db.Decimal(18, 2)
+  hire_add_comm_pct                       Decimal?                                @db.Decimal(6, 3)
+  time_display_unit                       String                                  @default("DAYS") @db.VarChar(10)
+  timezone_display_mode                   String                                  @default("PORT_LOCAL") @db.VarChar(10)
+  actual_voyages                          actual_voyages[]
+  estimate_bunker_opening_rob             estimate_bunker_opening_rob[]
+  estimate_bunker_summary                 estimate_bunker_summary[]
+  estimate_calculation_history            estimate_calculation_history[]
+  estimate_cargo_lines                    estimate_cargo_lines[]
+  estimate_charter_terms                  estimate_charter_terms[]
+  estimate_expense_items                  estimate_expense_items[]
+  estimate_misc_operation_expense_items   estimate_misc_operation_expense_items[]
+  estimate_misc_voyage_revenue_items      estimate_misc_voyage_revenue_items[]
+  estimate_port_legs                      estimate_port_legs[]
+  estimate_results                        estimate_results[]
+  estimate_vessels                        estimate_vessels?
+  estimate_voyage_durations               estimate_voyage_durations?
+  estimate_files                          estimate_files                          @relation(fields: [estimate_file_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  departments                             departments?                            @relation(fields: [operation_dept_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_estimates_operator_user_idTousers users?                                  @relation("estimates_operator_user_idTousers", fields: [operator_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_estimates_updated_byTousers       users?                                  @relation("estimates_updated_byTousers", fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  voyage_variances                        voyage_variances[]
+
+  @@unique([estimate_file_id, sheet_order])
+  @@index([estimate_file_id], map: "idx_estimates_file")
+  @@index([estimate_type], map: "idx_estimates_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model expense_categories {
+  id                               Int                                @id @default(autoincrement()) @db.SmallInt
+  code                             String                             @unique @db.VarChar(30)
+  name                             String                             @db.VarChar(100)
+  flow                             String                             @default("EXPENSE") @db.VarChar(10)
+  actual_voyage_expense_items      actual_voyage_expense_items[]
+  actual_voyage_port_call_expenses actual_voyage_port_call_expenses[]
+  estimate_expense_items           estimate_expense_items[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model fuel_types {
+  id                                   Int                                    @id @default(autoincrement()) @db.SmallInt
+  code                                 String                                 @unique @db.VarChar(10)
+  description                          String?                                @db.VarChar(100)
+  actual_voyage_bunker_by_activity     actual_voyage_bunker_by_activity[]
+  actual_voyage_bunker_opening_closing actual_voyage_bunker_opening_closing[]
+  actual_voyage_bunker_readings        actual_voyage_bunker_readings[]
+  actual_voyage_bunker_summary         actual_voyage_bunker_summary[]
+  actual_voyage_off_hire_bunker        actual_voyage_off_hire_bunker[]
+  estimate_bunker_opening_rob          estimate_bunker_opening_rob[]
+  estimate_bunker_summary              estimate_bunker_summary[]
+  estimate_leg_bunker_rob              estimate_leg_bunker_rob[]
+  estimate_vessel_bunker               estimate_vessel_bunker[]
+  vessel_bunker_consumption            vessel_bunker_consumption[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model im_types {
+  id               Int                @id @default(autoincrement()) @db.SmallInt
+  code             String             @unique @db.VarChar(20)
+  name             String             @db.VarChar(50)
+  contact_channels contact_channels[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model laytime_terms {
+  id                         Int                          @id @default(autoincrement()) @db.SmallInt
+  code                       String                       @unique @db.VarChar(15)
+  term                       String                       @db.VarChar(60)
+  description                String?                      @db.VarChar(150)
+  factor                     Decimal                      @default(1.0000) @db.Decimal(6, 4)
+  estimate_port_leg_cp_terms estimate_port_leg_cp_terms[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model port_types {
+  id    Int     @id @default(autoincrement()) @db.SmallInt
+  code  String  @unique @db.VarChar(30)
+  name  String  @db.VarChar(100)
+  ports ports[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ports {
+  id                                                                             BigInt                      @id @default(autoincrement())
+  port_name                                                                      String                      @db.VarChar(150)
+  country_id                                                                     Int?                        @db.SmallInt
+  unlocode                                                                       String?                     @db.Char(5)
+  utc_offset_min                                                                 Int?                        @db.SmallInt
+  latitude                                                                       Decimal?                    @db.Decimal(9, 6)
+  longitude                                                                      Decimal?                    @db.Decimal(9, 6)
+  is_canal                                                                       Boolean                     @default(false)
+  port_type_id                                                                   Int?                        @db.SmallInt
+  port_status                                                                    port_status_type            @default(ACTIVE)
+  remark                                                                         String?
+  created_at                                                                     DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                                                                     DateTime                    @default(now()) @db.Timestamptz(6)
+  actual_voyage_cargo_lines_actual_voyage_cargo_lines_discharging_port_idToports actual_voyage_cargo_lines[] @relation("actual_voyage_cargo_lines_discharging_port_idToports")
+  actual_voyage_cargo_lines_actual_voyage_cargo_lines_loading_port_idToports     actual_voyage_cargo_lines[] @relation("actual_voyage_cargo_lines_loading_port_idToports")
+  actual_voyage_legs_actual_voyage_legs_from_port_idToports                      actual_voyage_legs[]        @relation("actual_voyage_legs_from_port_idToports")
+  actual_voyage_legs_actual_voyage_legs_to_port_idToports                        actual_voyage_legs[]        @relation("actual_voyage_legs_to_port_idToports")
+  actual_voyage_off_hires_actual_voyage_off_hires_from_port_idToports            actual_voyage_off_hires[]   @relation("actual_voyage_off_hires_from_port_idToports")
+  actual_voyage_off_hires_actual_voyage_off_hires_to_port_idToports              actual_voyage_off_hires[]   @relation("actual_voyage_off_hires_to_port_idToports")
+  actual_voyage_port_calls                                                       actual_voyage_port_calls[]
+  estimate_cargo_lines_estimate_cargo_lines_discharging_port_idToports           estimate_cargo_lines[]      @relation("estimate_cargo_lines_discharging_port_idToports")
+  estimate_cargo_lines_estimate_cargo_lines_loading_port_idToports               estimate_cargo_lines[]      @relation("estimate_cargo_lines_loading_port_idToports")
+  estimate_charter_terms_estimate_charter_terms_delivery_port_idToports          estimate_charter_terms[]    @relation("estimate_charter_terms_delivery_port_idToports")
+  estimate_charter_terms_estimate_charter_terms_redelivery_port_idToports        estimate_charter_terms[]    @relation("estimate_charter_terms_redelivery_port_idToports")
+  estimate_port_legs                                                             estimate_port_legs[]
+  countries                                                                      countries?                  @relation(fields: [country_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  port_types                                                                     port_types?                 @relation(fields: [port_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([port_name], map: "idx_ports_name")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model users {
+  id                                              BigInt                    @id @default(autoincrement())
+  username                                        String                    @unique @db.VarChar(50)
+  full_name                                       String                    @db.VarChar(150)
+  email                                           String?                   @db.VarChar(150)
+  job_title                                       String?                   @db.VarChar(100)
+  department_id                                   Int?                      @db.SmallInt
+  created_at                                      DateTime                  @default(now()) @db.Timestamptz(6)
+  actual_voyage_off_hires                         actual_voyage_off_hires[]
+  actual_voyages                                  actual_voyages[]
+  companies                                       companies[]
+  contact_persons                                 contact_persons[]
+  estimate_files_estimate_files_created_byTousers estimate_files[]          @relation("estimate_files_created_byTousers")
+  estimate_files_estimate_files_updated_byTousers estimate_files[]          @relation("estimate_files_updated_byTousers")
+  estimates_estimates_operator_user_idTousers     estimates[]               @relation("estimates_operator_user_idTousers")
+  estimates_estimates_updated_byTousers           estimates[]               @relation("estimates_updated_byTousers")
+  departments                                     departments?              @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vessel_bunker_profiles                          vessel_bunker_profiles[]
+  vessels                                         vessels[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model vessel_bunker_consumption {
+  id                       BigInt                   @id @default(autoincrement())
+  vessel_mode_id           BigInt
+  fuel_role                fuel_role
+  condition                fuel_condition
+  fuel_type_id             Int                      @db.SmallInt
+  activity                 vessel_activity
+  consumption_mt_day       Decimal                  @db.Decimal(8, 3)
+  fuel_types               fuel_types               @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vessel_performance_modes vessel_performance_modes @relation(fields: [vessel_mode_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([vessel_mode_id, fuel_role, condition, activity])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model vessel_bunker_profiles {
+  id                       BigInt                     @id @default(autoincrement())
+  vessel_id                BigInt
+  profile_name             String                     @db.VarChar(100)
+  effective_from           DateTime                   @db.Date
+  effective_to             DateTime?                  @db.Date
+  is_active                Boolean                    @default(true)
+  remark                   String?
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_by               BigInt?
+  estimate_vessels         estimate_vessels[]
+  users                    users?                     @relation(fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vessels                  vessels                    @relation(fields: [vessel_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  vessel_performance_modes vessel_performance_modes[]
+
+  @@index([vessel_id, effective_from], map: "idx_bunker_profiles_vessel")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model vessel_gears {
+  id          BigInt   @id @default(autoincrement())
+  vessel_id   BigInt
+  gear_type   String   @db.VarChar(30)
+  position    String?  @db.VarChar(30)
+  capacity_mt Decimal? @db.Decimal(8, 2)
+  qty_ea      Int?     @db.SmallInt
+  vessels     vessels  @relation(fields: [vessel_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model vessel_kinds {
+  id               Int                @id @default(autoincrement()) @db.SmallInt
+  code             String             @unique @db.VarChar(30)
+  name             String             @db.VarChar(100)
+  estimate_vessels estimate_vessels[]
+  vessels          vessels[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model vessel_performance_modes {
+  id                        BigInt                      @id @default(autoincrement())
+  profile_id                BigInt
+  mode                      perf_mode
+  speed_ballast_kn          Decimal                     @db.Decimal(5, 2)
+  speed_laden_kn            Decimal                     @db.Decimal(5, 2)
+  vessel_bunker_consumption vessel_bunker_consumption[]
+  vessel_bunker_profiles    vessel_bunker_profiles      @relation(fields: [profile_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([profile_id, mode])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model vessel_types {
+  id               Int                @id @default(autoincrement()) @db.SmallInt
+  code             String             @unique @db.VarChar(20)
+  name             String             @db.VarChar(100)
+  estimate_vessels estimate_vessels[]
+  vessels          vessels[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model vessels {
+  id                      BigInt                   @id @default(autoincrement())
+  mv_name                 String                   @db.VarChar(150)
+  imo_no                  String?                  @db.VarChar(10)
+  call_sign               String?                  @db.VarChar(20)
+  vessel_code             String?                  @db.VarChar(30)
+  hull_no                 String?                  @db.VarChar(30)
+  ownership               ownership_type           @default(OWNED)
+  owner_company_id        BigInt?
+  vessel_kind_id          Int?                     @db.SmallInt
+  vessel_type_id          Int?                     @db.SmallInt
+  flag                    String?                  @db.VarChar(50)
+  class                   String?                  @db.VarChar(50)
+  built_year              Int?                     @db.SmallInt
+  dwt                     Decimal?                 @db.Decimal(10, 2)
+  dwcc                    Decimal?                 @db.Decimal(10, 2)
+  draft_m                 Decimal?                 @db.Decimal(6, 2)
+  loa_m                   Decimal?                 @db.Decimal(6, 2)
+  beam_m                  Decimal?                 @db.Decimal(6, 2)
+  depth_m                 Decimal?                 @db.Decimal(6, 2)
+  grt                     Decimal?                 @db.Decimal(10, 2)
+  nrt                     Decimal?                 @db.Decimal(10, 2)
+  scnt                    Decimal?                 @db.Decimal(10, 2)
+  pc_ums_nt               Decimal?                 @db.Decimal(10, 2)
+  tpc                     Decimal?                 @db.Decimal(8, 3)
+  grain_cbm               Decimal?                 @db.Decimal(12, 2)
+  bale_cbm                Decimal?                 @db.Decimal(12, 2)
+  constant_mt             Decimal?                 @db.Decimal(10, 2)
+  ice_class               String?                  @db.VarChar(20)
+  wap                     String?                  @db.VarChar(20)
+  ho_ha_type              String?                  @db.VarChar(30)
+  ho_ha_gear              String?                  @db.VarChar(30)
+  tank_top_strength_upper Decimal?                 @db.Decimal(10, 2)
+  tank_top_strength_tween Decimal?                 @db.Decimal(10, 2)
+  hatch_cover_strength    Decimal?                 @db.Decimal(10, 2)
+  remark                  String?
+  is_active               Boolean                  @default(true)
+  created_at              DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_by              BigInt?
+  actual_voyages          actual_voyages[]
+  estimate_vessels        estimate_vessels[]
+  vessel_bunker_profiles  vessel_bunker_profiles[]
+  vessel_gears            vessel_gears[]
+  companies               companies?               @relation(fields: [owner_company_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_vessels_owner_company")
+  users                   users?                   @relation(fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vessel_kinds            vessel_kinds?            @relation(fields: [vessel_kind_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vessel_types            vessel_types?            @relation(fields: [vessel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([mv_name], map: "idx_vessels_name")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model voyage_variances {
+  id                         BigInt         @id @default(autoincrement())
+  estimate_id                BigInt
+  actual_voyage_id           BigInt
+  side                       result_side    @default(TOTAL)
+  est_duration_days          Decimal?       @db.Decimal(8, 2)
+  act_duration_days          Decimal?       @db.Decimal(8, 2)
+  diff_duration_days         Decimal?       @db.Decimal(8, 2)
+  est_laden_days             Decimal?       @db.Decimal(8, 2)
+  act_laden_days             Decimal?       @db.Decimal(8, 2)
+  diff_laden_days            Decimal?       @db.Decimal(8, 2)
+  est_ballast_days           Decimal?       @db.Decimal(8, 2)
+  act_ballast_days           Decimal?       @db.Decimal(8, 2)
+  diff_ballast_days          Decimal?       @db.Decimal(8, 2)
+  est_port_days              Decimal?       @db.Decimal(8, 2)
+  act_port_days              Decimal?       @db.Decimal(8, 2)
+  diff_port_days             Decimal?       @db.Decimal(8, 2)
+  est_idle_days              Decimal?       @db.Decimal(8, 2)
+  act_idle_days              Decimal?       @db.Decimal(8, 2)
+  diff_idle_days             Decimal?       @db.Decimal(8, 2)
+  est_bunker_consumption_mt  Decimal?       @db.Decimal(12, 3)
+  act_bunker_consumption_mt  Decimal?       @db.Decimal(12, 3)
+  diff_bunker_consumption_mt Decimal?       @db.Decimal(12, 3)
+  est_bunker_cost            Decimal?       @db.Decimal(18, 2)
+  act_bunker_cost            Decimal?       @db.Decimal(18, 2)
+  diff_bunker_cost           Decimal?       @db.Decimal(18, 2)
+  est_revenue                Decimal?       @db.Decimal(18, 2)
+  act_revenue                Decimal?       @db.Decimal(18, 2)
+  diff_revenue               Decimal?       @db.Decimal(18, 2)
+  est_op_expense             Decimal?       @db.Decimal(18, 2)
+  act_op_expense             Decimal?       @db.Decimal(18, 2)
+  diff_op_expense            Decimal?       @db.Decimal(18, 2)
+  est_off_hire_amount        Decimal?       @db.Decimal(18, 2)
+  act_off_hire_amount        Decimal?       @db.Decimal(18, 2)
+  diff_off_hire_amount       Decimal?       @db.Decimal(18, 2)
+  est_profit_usd             Decimal?       @db.Decimal(18, 2)
+  act_profit_usd             Decimal?       @db.Decimal(18, 2)
+  diff_profit_usd            Decimal?       @db.Decimal(18, 2)
+  est_tce_usd_day            Decimal?       @db.Decimal(18, 2)
+  act_tce_usd_day            Decimal?       @db.Decimal(18, 2)
+  diff_tce_usd_day           Decimal?       @db.Decimal(18, 2)
+  calculated_at              DateTime       @default(now()) @db.Timestamptz(6)
+  actual_voyages             actual_voyages @relation(fields: [actual_voyage_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  estimates                  estimates      @relation(fields: [estimate_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([estimate_id, actual_voyage_id, side])
+  @@index([actual_voyage_id], map: "idx_voyage_variances_actual")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_calculation_history {
+  id              BigInt    @id @default(autoincrement())
+  estimate_id     BigInt
+  tool_type       String    @db.VarChar(30)
+  title           String?   @db.VarChar(150)
+  input_snapshot  Json      @default("{}")
+  output_snapshot Json      @default("{}")
+  applied_at      DateTime? @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  estimates       estimates @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([estimate_id, tool_type, created_at], map: "idx_est_calculation_history_estimate")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_misc_operation_expense_items {
+  id               BigInt    @id @default(autoincrement())
+  estimate_id      BigInt
+  item_description String    @db.VarChar(200)
+  item_type        String?   @db.VarChar(50)
+  item_amount      Decimal   @default(0) @db.Decimal(18, 2)
+  cp_side          cp_side?
+  sort_order       Int       @default(1) @db.SmallInt
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  estimates        estimates @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([estimate_id, sort_order], map: "idx_est_misc_operation_expense_estimate")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model estimate_misc_voyage_revenue_items {
+  id               BigInt    @id @default(autoincrement())
+  estimate_id      BigInt
+  item_description String    @db.VarChar(200)
+  item_type        String?   @db.VarChar(50)
+  item_amount      Decimal   @default(0) @db.Decimal(18, 2)
+  cp_side          cp_side?
+  sort_order       Int       @default(1) @db.SmallInt
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  estimates        estimates @relation(fields: [estimate_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([estimate_id, sort_order], map: "idx_est_misc_voyage_revenue_estimate")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cargoes {
+  id                        BigInt                      @id @default(autoincrement())
+  code                      String?                     @unique @db.VarChar(30)
+  cargo_name                String                      @unique @db.VarChar(150)
+  default_unit              String                      @default("MT") @db.VarChar(20)
+  stowage_factor            Decimal?                    @db.Decimal(10, 4)
+  stowage_factor_unit       String                      @default("CBM/MT") @db.VarChar(30)
+  description               String?
+  is_active                 Boolean                     @default(true)
+  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  actual_voyage_cargo_lines actual_voyage_cargo_lines[]
+  estimate_cargo_lines      estimate_cargo_lines[]
+
+  @@index([is_active, cargo_name], map: "idx_cargoes_active_name")
+}
+
+enum actual_consumption_activity {
+  LADEN
+  BALLAST
+  LOADING
+  DISCHARGE
+  IDLE
+}
+
+enum actual_leg_status {
+  LADEN
+  BALLAST
+}
+
+enum contact_channel_type {
+  PHONE
+  FAX
+  MOBILE
+  EMAIL
+  WEBSITE
+  BANK_ACCOUNT
+  INSTANT_MESSENGER
+}
+
+enum cp_side {
+  HEAD
+  SUB
+}
+
+enum estimate_status {
+  DRAFT
+  CONFIRMED
+  FIXED
+  LOST
+  CANCELLED
+}
+
+enum estimate_type {
+  VOYAGE
+  CARGO_RELET
+  TIME_CHARTER
+}
+
+enum fuel_condition {
+  NORMAL
+  ECA
+}
+
+enum fuel_role {
+  MAIN
+  SUB
+}
+
+enum leg_type {
+  BALLAST
+  LOADING
+  DISCHARGE
+  CANAL
+  BUNKER
+  DELIVERY
+  REDELIVERY
+  OTHER
+}
+
+enum off_hire_place {
+  PORT
+  SEA
+}
+
+enum ownership_type {
+  OWNED
+  CHARTERED
+  MANAGED
+}
+
+enum perf_mode {
+  FULL
+  ECO
+  CUSTOM1
+  CUSTOM2
+  CUSTOM3
+}
+
+enum port_status_type {
+  ACTIVE
+  INACTIVE
+  RESTRICTED
+}
+
+enum result_side {
+  TOTAL
+  HEAD
+  SUB
+  DIFF
+}
+
+enum vessel_activity {
+  BALLAST
+  LADEN
+  IDLE
+  WORK
+  SEA
+}
+
+enum voyage_event_type {
+  START_OF_SEA_PASSAGE
+  STOP_SEA_PASSAGE
+  RESUME_SEA_PASSAGE
+  END_OF_SEA_PASSAGE
+  ANCHOR
+  ANCHOR_AWEIGH
+  ALL_FAST
+  CARGO_OPS_COMMENCE
+  CARGO_OPS_COMPLETE
+  UNMOOR
+}

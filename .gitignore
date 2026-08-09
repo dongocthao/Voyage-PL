@@ -1,0 +1,16 @@
+node_modules
+.pnpm-store
+.next
+dist
+coverage
+.output
+.wrangler
+.env
+.env.local
+*.log
+uploads
+test-write
+lovable-source
+infra/.postgres-dev
+tmp/*.log
+tmp/*.png
