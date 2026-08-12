@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   AnalyzerSimulationDto,
@@ -7,10 +7,13 @@ import {
   TimeCharterCalculationDto,
 } from './dto/estimate-simulation.dto';
 import { SaveCargoReletEstimateDto } from './dto/cargo-relet-snapshot.dto';
+import { SaveOperationSnapshotDto } from './dto/operation-snapshot.dto';
 import { SaveVoyageEstimateDto } from './dto/voyage-estimate-snapshot.dto';
 import { SaveTimeCharterEstimateDto } from './dto/time-charter-snapshot.dto';
 import { EstimateSimulationService } from './services/estimate-simulation.service';
+import { EstimateListService } from './services/estimate-list.service';
 import { CargoReletEstimateSnapshotService } from './services/cargo-relet-estimate-snapshot.service';
+import { OperationSnapshotService } from './services/operation-snapshot.service';
 import { TimeCharterEstimateSnapshotService } from './services/time-charter-estimate-snapshot.service';
 import { VoyageEstimateSnapshotService } from './services/voyage-estimate-snapshot.service';
 
@@ -22,7 +25,19 @@ export class EstimatesController {
     private readonly timeCharterSnapshots: TimeCharterEstimateSnapshotService,
     private readonly cargoReletSnapshots: CargoReletEstimateSnapshotService,
     private readonly simulations: EstimateSimulationService,
+    private readonly estimateList: EstimateListService,
+    private readonly operationSnapshots: OperationSnapshotService,
   ) {}
+
+  @Get()
+  listEstimates() {
+    return this.estimateList.list();
+  }
+
+  @Get('operations')
+  listOperations() {
+    return this.operationSnapshots.list();
+  }
 
   @Post('voyage-snapshots')
   saveVoyageSnapshot(@Body() body: SaveVoyageEstimateDto) {
@@ -57,6 +72,26 @@ export class EstimatesController {
   @Get('cargo-relet-snapshots/:estimateId')
   loadCargoReletSnapshot(@Param('estimateId') estimateId: string) {
     return this.cargoReletSnapshots.load(estimateId);
+  }
+
+  @Post('operation-snapshots')
+  saveOperationSnapshot(@Body() body: SaveOperationSnapshotDto) {
+    return this.operationSnapshots.save(body);
+  }
+
+  @Get('operation-snapshots/by-estimate/:estimateId')
+  findOperationByEstimate(@Param('estimateId') estimateId: string) {
+    return this.operationSnapshots.findByEstimateId(estimateId);
+  }
+
+  @Get('operation-snapshots/:operationId')
+  loadOperationSnapshot(@Param('operationId') operationId: string) {
+    return this.operationSnapshots.load(operationId);
+  }
+
+  @Delete('operation-snapshots/:operationId')
+  deleteOperationSnapshot(@Param('operationId') operationId: string) {
+    return this.operationSnapshots.delete(operationId);
   }
 
   @Post('voyage-simulations/freight')

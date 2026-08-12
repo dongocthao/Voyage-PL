@@ -28,9 +28,9 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
 import { Suspense, lazy, useCallback, useMemo, useRef, useState, type CSSProperties } from "react";
 import VoyageEstimator from "@/components/voyage-estimator/VoyageEstimator";
+import DialogShell from "@/components/voyage-estimator/DialogShell";
 import {
   ToolbarCommandManager,
   type ToolbarCommand,
@@ -42,14 +42,43 @@ const OperationApp = lazy(() => import("@/components/voyage-estimator/OperationA
 const TimeCharterApp = lazy(() => import("@/components/voyage-estimator/TimeCharterApp"));
 const CargoReletApp = lazy(() => import("@/components/voyage-estimator/CargoReletApp"));
 const CharterPartyApp = lazy(() => import("@/components/voyage-estimator/CharterPartyApps"));
+const EstimateListForm = lazy(() =>
+  import("@/components/estimate-list-form").then((module) => ({
+    default: module.EstimateListForm,
+  })),
+);
+const OperationListForm = lazy(() =>
+  import("@/components/operation-list-form").then((module) => ({
+    default: module.OperationListForm,
+  })),
+);
+const OptionForm = lazy(() =>
+  import("@/components/option-form").then((module) => ({
+    default: module.OptionForm,
+  })),
+);
+const NewCargoForm = lazy(() =>
+  import("@/components/new-cargo-form").then((module) => ({
+    default: module.NewCargoForm,
+  })),
+);
+const NewPortForm = lazy(() =>
+  import("@/components/new-port-form").then((module) => ({
+    default: module.NewPortForm,
+  })),
+);
+const NewVesselFormAnt = lazy(() => import("@/components/voyage-estimator/NewVesselFormAnt"));
 
 type WorkspacePage =
   | "voyage-estimation"
+  | "estimate-list"
   | "time-charter"
   | "cargo-relet"
+  | "operation-list"
   | "operation"
   | "voyage-charter-party"
-  | "time-charter-party";
+  | "time-charter-party"
+  | "option";
 
 type RibbonAction = {
   command: ToolbarCommand;
@@ -82,6 +111,7 @@ const ribbonGroups: RibbonAction[][] = [
 ];
 
 const estimationOptions: Array<{ id: WorkspacePage; label: string }> = [
+  { id: "estimate-list", label: "Estimate List" },
   { id: "voyage-estimation", label: "Voyage Estimation" },
   { id: "time-charter", label: "Time Charter Estimation" },
   { id: "cargo-relet", label: "Cargo Relet" },
@@ -92,23 +122,35 @@ const charterPartyOptions: Array<{ id: WorkspacePage; label: string }> = [
   { id: "time-charter-party", label: "Time Charter Party" },
 ];
 
-const settingsOptions: Array<{ label: string; to?: "/new-vessel" | "/new-cargo" | "/new-port" }> = [
-  { label: "Vessel", to: "/new-vessel" },
-  { label: "Cargo", to: "/new-cargo" },
-  { label: "Port", to: "/new-port" },
+type SettingsOption = {
+  label: string;
+  dialog: "option" | "vessel" | "cargo" | "port";
+};
+
+const settingsOptions: SettingsOption[] = [
+  { label: "Option", dialog: "option" },
+  { label: "Vessel", dialog: "vessel" },
+  { label: "Cargo", dialog: "cargo" },
+  { label: "Port", dialog: "port" },
 ];
 
 const pageLabels: Record<WorkspacePage, string> = {
   "voyage-estimation": "Voyage Estimation",
+  "estimate-list": "Estimate List",
   "time-charter": "Time Charter Estimation",
   "cargo-relet": "Cargo Relet",
+  "operation-list": "Operation List",
   operation: "Operation",
   "voyage-charter-party": "Voyage Charter Party",
   "time-charter-party": "Time Charter Party",
+  option: "Option",
 };
 
 export default function MainWorkspace() {
   const [page, setPage] = useState<WorkspacePage>("voyage-estimation");
+  const [activeSettingDialog, setActiveSettingDialog] = useState<
+    SettingsOption["dialog"] | null
+  >(null);
   const [sidebarWidth, setSidebarWidth] = useState(90);
   const [estimationOpen, setEstimationOpen] = useState(false);
   const [charterPartyOpen, setCharterPartyOpen] = useState(false);
@@ -120,7 +162,8 @@ export default function MainWorkspace() {
     hasEstimate: false,
     execute: {},
   });
-  const navigate = useNavigate();
+  const [operationSourceEstimateId, setOperationSourceEstimateId] = useState<string>();
+  const [selectedOperationId, setSelectedOperationId] = useState<string>();
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
   const toolbarManager = useMemo(
     () => new ToolbarCommandManager(toolbarRegistration.hasSheet, toolbarRegistration.hasEstimate),
@@ -144,12 +187,6 @@ export default function MainWorkspace() {
     }
 
     setToolbarMessage(undefined);
-    if (command === "toOperation") {
-      resetToolbarRegistration();
-      setPage("operation");
-      return;
-    }
-
     const handler = toolbarRegistration.execute[command];
     if (handler) {
       handler();
@@ -162,6 +199,14 @@ export default function MainWorkspace() {
       return;
     }
 
+    if (command === "toOperation") {
+      resetToolbarRegistration();
+      setOperationSourceEstimateId(undefined);
+      setSelectedOperationId(undefined);
+      setPage("operation");
+      return;
+    }
+
     if (command === "options") {
       setToolbarMessage("Options are not available for this sheet yet.");
       return;
@@ -171,12 +216,16 @@ export default function MainWorkspace() {
   };
 
   const breadcrumb = useMemo(() => {
-    const section = page.includes("charter-party")
-      ? "Charter Party"
-      : page === "operation"
-        ? "Operation"
-        : "Estimation";
-    return ["Voyage P&L", section, pageLabels[page]];
+    const section =
+      page === "option"
+        ? "Settings"
+        : page.includes("charter-party")
+          ? "Charter Party"
+          : page === "operation" || page === "operation-list"
+            ? "Operation"
+            : "Estimation";
+    const pageLabel = pageLabels[page];
+    return pageLabel === section ? ["Voyage P&L", section] : ["Voyage P&L", section, pageLabel];
   }, [page]);
 
   const startResize = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -211,7 +260,7 @@ export default function MainWorkspace() {
           {toolbarMessage}
         </div>
       )}
-      <div className="flex h-[calc(100vh-52px-88px-28px)] min-h-0">
+      <div className="flex h-[calc(100vh-52px-52px-28px)] min-h-0">
         <Sidebar
           width={sidebarWidth}
           page={page}
@@ -235,16 +284,20 @@ export default function MainWorkspace() {
           }}
           onSelectPage={(nextPage) => {
             resetToolbarRegistration();
+            if (nextPage !== "operation") {
+              setOperationSourceEstimateId(undefined);
+              setSelectedOperationId(undefined);
+            }
             setPage(nextPage);
             setEstimationOpen(false);
             setCharterPartyOpen(false);
             setSettingsOpen(false);
           }}
-          onSelectSettings={(to) => {
+          onSelectSettings={(option) => {
             setSettingsOpen(false);
             setEstimationOpen(false);
             setCharterPartyOpen(false);
-            navigate({ to });
+            setActiveSettingDialog(option.dialog);
           }}
         />
         <div
@@ -257,8 +310,18 @@ export default function MainWorkspace() {
             <Suspense
               fallback={<div className="p-4 text-sm text-[#006994]">Loading workspace...</div>}
             >
+              {page === "estimate-list" && (
+                <EstimateListForm registerWorkspaceToolbar={registerToolbar} />
+              )}
               {page === "voyage-estimation" && (
-                <VoyageEstimator registerWorkspaceToolbar={registerToolbar} />
+                <VoyageEstimator
+                  registerWorkspaceToolbar={registerToolbar}
+                  onToOperation={(estimateId) => {
+                    resetToolbarRegistration();
+                    setOperationSourceEstimateId(estimateId);
+                    setPage("operation");
+                  }}
+                />
               )}
               {page === "time-charter" && (
                 <TimeCharterApp registerWorkspaceToolbar={registerToolbar} />
@@ -266,14 +329,93 @@ export default function MainWorkspace() {
               {page === "cargo-relet" && (
                 <CargoReletApp registerWorkspaceToolbar={registerToolbar} />
               )}
-              {page === "operation" && <OperationApp />}
+              {page === "operation-list" && (
+                <OperationListForm
+                  registerWorkspaceToolbar={registerToolbar}
+                  onOpenOperation={(operationId) => {
+                    resetToolbarRegistration();
+                    setSelectedOperationId(operationId);
+                    setOperationSourceEstimateId(undefined);
+                    setPage("operation");
+                  }}
+                />
+              )}
+              {page === "operation" && (
+                <OperationApp
+                  embedded
+                  registerWorkspaceToolbar={registerToolbar}
+                  operationId={selectedOperationId}
+                  sourceEstimateId={operationSourceEstimateId}
+                />
+              )}
               {page === "voyage-charter-party" && <CharterPartyApp type="voyage" />}
               {page === "time-charter-party" && <CharterPartyApp type="time-charter" />}
+              {page === "option" && <OptionForm />}
             </Suspense>
           </div>
         </main>
       </div>
+      {activeSettingDialog && (
+        <SettingsDialogLayer
+          type={activeSettingDialog}
+          onClose={() => setActiveSettingDialog(null)}
+        />
+      )}
       <StatusBar />
+    </div>
+  );
+}
+
+function SettingsDialogLayer({
+  type,
+  onClose,
+}: {
+  type: SettingsOption["dialog"];
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] bg-[#003c52]/30 p-3">
+      <div className="flex h-full items-start justify-center overflow-auto">
+        <Suspense fallback={<div className="p-4 text-sm text-white">Loading...</div>}>
+          {type === "option" && (
+            <DialogShell
+              title="Option"
+              icon={<Settings className="h-3.5 w-3.5" />}
+              width={760}
+              onClose={onClose}
+              bodyPadding={0}
+              actions={[]}
+            >
+              <OptionForm embedded onClose={onClose} />
+            </DialogShell>
+          )}
+          {type === "cargo" && (
+            <DialogShell
+              title="Cargo"
+              icon={<PackageOpen className="h-3.5 w-3.5" />}
+              width={1060}
+              onClose={onClose}
+              bodyPadding={0}
+              actions={[]}
+            >
+              <NewCargoForm embedded onClose={onClose} />
+            </DialogShell>
+          )}
+          {type === "port" && (
+            <DialogShell
+              title="Ports"
+              icon={<Anchor className="h-3.5 w-3.5" />}
+              width={920}
+              onClose={onClose}
+              bodyPadding={0}
+              actions={[]}
+            >
+              <NewPortForm embedded onClose={onClose} />
+            </DialogShell>
+          )}
+          {type === "vessel" && <NewVesselFormAnt onClose={onClose} />}
+        </Suspense>
+      </div>
     </div>
   );
 }
@@ -356,7 +498,7 @@ function RibbonBar({
   onCommand: (command: ToolbarCommand) => void;
 }) {
   return (
-    <section className="flex h-[88px] items-stretch overflow-x-auto border-b border-[#C8D3DC] bg-[#F4F7FA] px-2">
+    <section className="flex h-[52px] items-stretch overflow-x-auto border-b border-[#C8D3DC] bg-[#F4F7FA] px-2">
       {ribbonGroups.map((group, groupIndex) => (
         <div
           key={groupIndex}
@@ -371,9 +513,9 @@ function RibbonBar({
                 type="button"
                 disabled={disabled}
                 onClick={() => onCommand(action.command)}
-                className="flex h-[72px] w-[74px] flex-col items-center justify-center gap-1 rounded-[4px] text-[11px] font-semibold text-[#2B3E4D] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex h-[46px] w-[70px] flex-col items-center justify-center gap-[2px] rounded-[4px] text-[10px] font-semibold text-[#2B3E4D] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Icon className="h-6 w-6" style={{ color: action.color }} strokeWidth={1.8} />
+                <Icon className="h-5 w-5" style={{ color: action.color }} strokeWidth={1.8} />
                 <span className="leading-tight">{action.label}</span>
               </button>
             );
@@ -405,7 +547,7 @@ function Sidebar({
   onToggleCharterParty: () => void;
   onToggleSettings: () => void;
   onSelectPage: (page: WorkspacePage) => void;
-  onSelectSettings: (to: "/new-vessel" | "/new-cargo" | "/new-port") => void;
+  onSelectSettings: (option: SettingsOption) => void;
 }) {
   const itemClass =
     "relative flex h-[74px] w-full flex-col items-center justify-center gap-1 rounded-[4px] px-1 text-center text-[11px] font-bold";
@@ -454,7 +596,9 @@ function Sidebar({
           type="button"
           onClick={onToggleEstimation}
           className={`${itemClass} ${
-            page !== "operation" ? "bg-[#237EA4] text-white" : "text-white/90 hover:bg-white/10"
+            ["estimate-list", "voyage-estimation", "time-charter", "cargo-relet"].includes(page)
+              ? "bg-[#237EA4] text-white"
+              : "text-white/90 hover:bg-white/10"
           }`}
         >
           <Gauge className="h-6 w-6" />
@@ -480,9 +624,11 @@ function Sidebar({
 
       <button
         type="button"
-        onClick={() => onSelectPage("operation")}
+        onClick={() => onSelectPage("operation-list")}
         className={`${itemClass} ${
-          page === "operation" ? "bg-[#237EA4] text-white" : "text-white/90 hover:bg-white/10"
+          page === "operation" || page === "operation-list"
+            ? "bg-[#237EA4] text-white"
+            : "text-white/90 hover:bg-white/10"
         }`}
       >
         <Anchor className="h-6 w-6" />
@@ -497,7 +643,9 @@ function Sidebar({
           type="button"
           onClick={onToggleSettings}
           className={`${itemClass} ${
-            settingsOpen ? "bg-[#237EA4] text-white" : "text-white/90 hover:bg-white/10"
+            settingsOpen || page === "option"
+              ? "bg-[#237EA4] text-white"
+              : "text-white/90 hover:bg-white/10"
           }`}
         >
           <Settings className="h-6 w-6" />
@@ -506,14 +654,14 @@ function Sidebar({
         {settingsOpen && (
           <div className="absolute left-full top-0 z-20 ml-2 w-56 rounded border border-[#dcdfe6] bg-white py-1 shadow-lg">
             {settingsOptions.map((option) => (
-              <button
-                key={option.label}
-                type="button"
-                onClick={() => option.to && onSelectSettings(option.to)}
-                className="block w-full px-3 py-2 text-left text-sm text-[#172331] hover:bg-[#F0F3F6]"
-              >
-                {option.label}
-              </button>
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={() => onSelectSettings(option)}
+                  className="block w-full px-3 py-2 text-left text-sm text-[#172331] hover:bg-[#F0F3F6]"
+                >
+                  {option.label}
+                </button>
             ))}
           </div>
         )}

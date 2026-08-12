@@ -14,6 +14,7 @@ import { RowToolbar } from "./CargoTable";
 import TcBottomPanels from "./TcBottomPanels";
 import type { TcBottomPanelData, TcMiscItem } from "./TcBottomPanels";
 import AnalyzerApp from "./AnalyzerApp";
+import { TimeCharterReportPreview } from "./TimeCharterReportPreview";
 import { useRowOps } from "./useRowOps";
 import { SectionTitle, TxtCell, YCell, SelCell } from "./cells";
 import { VE_COLORS } from "./theme";
@@ -40,6 +41,7 @@ import {
 } from "./timeCharterSnapshotMapper";
 import { ToolbarCommandManager, type ToolbarCommand } from "./toolbarCommandManager";
 import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
+import { buildPortRotationSummary } from "./portRotationSummary";
 
 const portEditorWithInfo = (v: string, onChange: (value: string) => void) => (
   <div className="flex items-center">
@@ -72,6 +74,7 @@ export default function TimeCharterApp({
   const [estimateId, setEstimateId] = useState<string>();
   const [estimateFileId, setEstimateFileId] = useState<string>();
   const [apiResult, setApiResult] = useState<VoyageSnapshotResult>();
+  const [auditState, setAuditState] = useState({ updatedAt: "", updatedBy: "Admin" });
   const [saveState, setSaveState] = useState<
     | { status: "idle" }
     | { status: "saving" }
@@ -91,6 +94,8 @@ export default function TimeCharterApp({
   const [miscRevenueItems, setMiscRevenueItems] = useState<TcMiscItem[]>([]);
   const [otherExpenseItems, setOtherExpenseItems] = useState<TcMiscItem[]>([]);
   const [analyzerOpen, setAnalyzerOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportPrintToken, setReportPrintToken] = useState<number>();
   const workspaceToolbarActionsRef = useRef<{
     resetSheet: () => void;
     deleteSheet: () => void;
@@ -104,6 +109,7 @@ export default function TimeCharterApp({
     load: () => undefined,
     clear: () => undefined,
   });
+  const routeEstimateLoadRef = useRef<string | undefined>(undefined);
   const sel = (key: string | null) => (r: { key: string }) =>
     r.key === key ? "ve-row-selected" : "";
   const updateCpRow = useCallback(
@@ -155,6 +161,20 @@ export default function TimeCharterApp({
   const calculatedPortRows = useMemo(() => calculatePortSchedule(port.rows), [port.rows]);
   const portCols = useMemo(() => createPortCols(updatePortRow), [updatePortRow]);
   const portTotals = useMemo(() => calculatePortTotals(calculatedPortRows), [calculatedPortRows]);
+  const tcSummaryText = useMemo(
+    () =>
+      buildPortRotationSummary(calculatedPortRows, {
+        isSummaryRow: isMargin,
+        type: (row) => row.type,
+        sea: (row) => row.sea,
+        idle: (row) => row.idle,
+        eca: (row) => row.eca,
+        wf: (row) => row.wf,
+        spd: (row) => row.spd,
+        departure: (row) => row.departure,
+      }),
+    [calculatedPortRows],
+  );
   const bottomPanelData = useMemo<TcBottomPanelData>(
     () => buildBottomPanelData(head.rows, sub.rows, miscRevenueItems, otherExpenseItems),
     [head.rows, miscRevenueItems, otherExpenseItems, sub.rows],
@@ -220,6 +240,10 @@ export default function TimeCharterApp({
       setEstimateId(response.estimateId);
       setEstimateFileId(response.estimateFileId);
       setApiResult(response.result);
+      setAuditState({
+        updatedAt: response.updatedAt ?? new Date().toISOString(),
+        updatedBy: response.updatedByName ?? "Admin",
+      });
       setSaveState({
         status: "saved",
         message: `Saved Time Charter estimate #${response.estimateId}. Profit USD ${response.result.profitUsd.toLocaleString("en-US")}`,
@@ -230,19 +254,10 @@ export default function TimeCharterApp({
     }
   };
 
-  const load = async () => {
-    if (!sheetExists) {
-      setSaveState({ status: "error", message: "There is no sheet to open." });
-      return;
-    }
-    if (!estimateId) {
-      setSaveState({ status: "error", message: "Save or select an Estimate ID before loading." });
-      return;
-    }
-
+  const loadById = async (id: string) => {
     setSaveState({ status: "loading" });
     try {
-      const snapshot = await loadTimeCharterSnapshot(estimateId);
+      const snapshot = await loadTimeCharterSnapshot(id);
       const mapped = mapTimeCharterSnapshotToRows(snapshot);
       head.setRows(mapped.headCpRows);
       sub.setRows(mapped.subCpRows);
@@ -260,15 +275,40 @@ export default function TimeCharterApp({
       setTimeDisplayUnit(snapshot.header.timeDisplayUnit ?? "DAYS");
       setTimezoneDisplayMode(snapshot.header.timezoneDisplayMode ?? "PORT_LOCAL");
       setApiResult(snapshot.result);
+      setAuditState({
+        updatedAt: snapshot.header.updatedAt ?? "",
+        updatedBy: snapshot.header.updatedByName ?? "Admin",
+      });
       setSaveState({
         status: "loaded",
-        message: `Loaded Time Charter estimate #${snapshot.header.estimateId ?? estimateId}.`,
+        message: `Loaded Time Charter estimate #${snapshot.header.estimateId ?? id}.`,
       });
     } catch (error) {
       const formatted = formatError(error, "Load failed");
       setSaveState({ status: "error", message: formatted.message, details: formatted.details });
     }
   };
+
+  const load = async () => {
+    if (!sheetExists) {
+      setSaveState({ status: "error", message: "There is no sheet to open." });
+      return;
+    }
+    if (!estimateId) {
+      setSaveState({ status: "error", message: "Save or select an Estimate ID before loading." });
+      return;
+    }
+
+    await loadById(estimateId);
+  };
+
+  useEffect(() => {
+    const routeEstimateId = new URLSearchParams(window.location.search).get("estimateId")?.trim();
+    if (!routeEstimateId || routeEstimateLoadRef.current === routeEstimateId) return;
+
+    routeEstimateLoadRef.current = routeEstimateId;
+    void loadById(routeEstimateId);
+  }, []);
 
   const resetSheet = () => {
     head.setRows(tcHeadCp);
@@ -282,6 +322,7 @@ export default function TimeCharterApp({
     setEstimateId(undefined);
     setEstimateFileId(undefined);
     setApiResult(undefined);
+    setAuditState({ updatedAt: "", updatedBy: "Admin" });
     setMiscRevenueItems([]);
     setOtherExpenseItems([]);
     setSheetExists(true);
@@ -295,6 +336,7 @@ export default function TimeCharterApp({
     setEstimateId(undefined);
     setEstimateFileId(undefined);
     setApiResult(undefined);
+    setAuditState({ updatedAt: "", updatedBy: "Admin" });
     setSheetExists(false);
     setSaveState({ status: "idle" });
   };
@@ -398,6 +440,8 @@ export default function TimeCharterApp({
       sheetKind="time charter"
       onToolbarCommand={handleToolbarCommand}
       toolbarCommandState={toolbarManager.getState()}
+      lastUpdatedAt={auditState.updatedAt}
+      lastUpdatedBy={auditState.updatedBy}
     >
       {(apiResult ||
         saveState.status === "saved" ||
@@ -535,7 +579,9 @@ export default function TimeCharterApp({
           >
             KIEL
           </Checkbox>
-          <span className="text-[11px] text-gray-600">{tcPortSummary}</span>
+          <span className="text-[11px] font-bold text-gray-700" style={{ marginLeft: "38.6%" }}>
+            {tcSummaryText || tcPortSummary}
+          </span>
         </div>
         <Table<TcPortRow>
           size="small"
@@ -635,6 +681,11 @@ export default function TimeCharterApp({
 
       <TcBottomPanels
         onOpenAnalyzer={() => setAnalyzerOpen(true)}
+        onOpenReport={() => setReportOpen(true)}
+        onPrintReport={() => {
+          setReportOpen(true);
+          setReportPrintToken(Date.now());
+        }}
         data={bottomPanelData}
         miscRevenueItems={miscRevenueItems}
         otherExpenseItems={otherExpenseItems}
@@ -642,6 +693,28 @@ export default function TimeCharterApp({
         onOtherExpenseItemsChange={setOtherExpenseItems}
       />
       {analyzerOpen && <AnalyzerApp onClose={() => setAnalyzerOpen(false)} />}
+      <TimeCharterReportPreview
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        autoPrintToken={reportPrintToken}
+        data={{
+          estimateId,
+          estimateName: "time-charter1",
+          status: "DRAFT",
+          auditState,
+          vesselId,
+          bunkerProfileId,
+          performanceMode,
+          lookups: { vessels, bunkerProfiles },
+          headCpRows: head.rows,
+          subCpRows: sub.rows,
+          portRows: calculatedPortRows,
+          bottomPanelData,
+          miscRevenueItems,
+          otherExpenseItems,
+          summaryText: tcSummaryText,
+        }}
+      />
     </EstimatorShell>
   );
 }
@@ -947,7 +1020,7 @@ function calculatePortTotals(rows: TcPortRow[]) {
   };
 }
 
-function buildBottomPanelData(
+export function buildBottomPanelData(
   headRows: TcCpRow[],
   subRows: TcCpRow[],
   miscRevenueItems: TcMiscItem[],

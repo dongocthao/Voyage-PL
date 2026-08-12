@@ -10,12 +10,14 @@ export function buildCargoReletSnapshotPayload({
   header,
   cargoRows,
   portRows,
+  otherResultAmount,
 }: {
   estimateId?: string;
   estimateFileId?: string;
   header?: Partial<CargoReletSnapshotPayload["header"]>;
   cargoRows: ReletCargoRow[];
   portRows: ReletPortRow[];
+  otherResultAmount?: string;
 }): CargoReletSnapshotPayload {
   const marginRow = portRows.find((row) => row.key === "margin");
 
@@ -34,6 +36,7 @@ export function buildCargoReletSnapshotPayload({
       estimateFileId,
       marginSeaDays: parseNumber(marginRow?.sea) ?? header?.marginSeaDays,
       marginPortIdleDays: parseNumber(marginRow?.idle) ?? header?.marginPortIdleDays,
+      otherResultAmount: parseNumber(otherResultAmount) ?? header?.otherResultAmount,
     },
     cargoLines: cargoRows.filter(hasCargoData).map((row, index) => ({
       lineNo: Number(row.no) || index + 1,
@@ -76,10 +79,10 @@ export function mapCargoReletSnapshotToRows(snapshot: LoadedCargoReletSnapshot) 
   const cargoRows: ReletCargoRow[] = snapshot.cargoLines.map((line, index) => ({
     key: `loaded-relet-cargo-${line.lineNo || index + 1}`,
     no: String(line.lineNo || index + 1),
-    account: "",
+    account: line.accountCompanyName ?? "",
     cargoName: line.cargoName ?? "",
-    loadingPort: "",
-    dischargingPort: "",
+    loadingPort: line.loadingPortName ?? "",
+    dischargingPort: line.dischargingPortName ?? "",
     quantity: formatNumber(line.quantityMt),
     unit: line.quantityUnit ?? "MT",
     hFrt: formatNumber(line.head.freightRate),
@@ -102,7 +105,7 @@ export function mapCargoReletSnapshotToRows(snapshot: LoadedCargoReletSnapshot) 
     key: `loaded-relet-port-${leg.legNo || index + 1}`,
     no: String(leg.legNo || index + 1),
     type: formatLegType(leg.legType),
-    port: "",
+    port: leg.portName ?? "",
     timezone: "",
     distance: formatNumber(leg.distanceNm),
     eca: formatNumber(leg.ecaNm),
@@ -146,7 +149,11 @@ export function mapCargoReletSnapshotToRows(snapshot: LoadedCargoReletSnapshot) 
     departure: "",
   });
 
-  return { cargoRows, portRows };
+  return {
+    cargoRows,
+    portRows,
+    otherResultAmount: formatNumber(snapshot.header.otherResultAmount ?? snapshot.result?.opExpense),
+  };
 }
 
 function mapFreight(row: ReletCargoRow, side: "h" | "s") {

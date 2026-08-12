@@ -6,6 +6,7 @@ import {
   LineChartOutlined,
   FileTextOutlined,
   ReloadOutlined,
+  PrinterOutlined,
   MinusCircleFilled,
   PlusCircleFilled,
 } from "@ant-design/icons";
@@ -108,6 +109,8 @@ export type TcBottomPanelData = {
 
 export default function TcBottomPanels({
   onOpenAnalyzer,
+  onOpenReport,
+  onPrintReport,
   data = {},
   miscRevenueItems = [],
   otherExpenseItems = [],
@@ -115,6 +118,8 @@ export default function TcBottomPanels({
   onOtherExpenseItemsChange,
 }: {
   onOpenAnalyzer?: () => void;
+  onOpenReport?: () => void;
+  onPrintReport?: () => void;
   data?: TcBottomPanelData;
   miscRevenueItems?: TcMiscItem[];
   otherExpenseItems?: TcMiscItem[];
@@ -216,6 +221,12 @@ export default function TcBottomPanels({
             <Button size="small" icon={<LineChartOutlined />} onClick={onOpenAnalyzer}>
               Analyzer
             </Button>
+            <Button size="small" icon={<FileTextOutlined />} onClick={onOpenReport}>
+              Report
+            </Button>
+            <Button size="small" icon={<PrinterOutlined />} onClick={onPrintReport}>
+              Print
+            </Button>
             <Button size="small" icon={<FileTextOutlined />}>
               Remark
             </Button>
@@ -244,7 +255,7 @@ export default function TcBottomPanels({
               className="border-r px-1 py-[3px]"
               style={{ borderColor: VE_COLORS.border, background: VE_COLORS.rowAlt }}
             >
-              PROFIT (USD)
+              PROFIT
             </div>
             <div
               className="px-1 py-[3px] text-right"

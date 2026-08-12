@@ -54,10 +54,16 @@ export type TimeCharterSnapshotPayload = {
 export type SaveTimeCharterSnapshotResponse = {
   estimateId: string;
   estimateFileId: string;
+  updatedAt?: string;
+  updatedByName?: string;
   result: VoyageSnapshotResult;
 };
 
 export type LoadedTimeCharterSnapshot = TimeCharterSnapshotPayload & {
+  header: TimeCharterSnapshotPayload["header"] & {
+    updatedAt?: string;
+    updatedByName?: string;
+  };
   result?: VoyageSnapshotResult;
 };
 

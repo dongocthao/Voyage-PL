@@ -80,6 +80,22 @@
   border-color: #334e63 !important;
 }
 
+.cargo-relet-estimation .ant-table .ant-input,
+.cargo-relet-estimation .ant-table .ant-input:hover,
+.cargo-relet-estimation .ant-table .ant-input:focus,
+.cargo-relet-estimation .ant-table .ant-input-focused,
+.cargo-relet-estimation .ant-table .ant-select-selector,
+.cargo-relet-estimation .ant-table .ant-select-selector:hover,
+.cargo-relet-estimation .ant-table .ant-select-focused .ant-select-selector {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+.cargo-relet-estimation .ant-table .ant-input {
+  background-clip: padding-box;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 /*

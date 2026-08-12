@@ -394,7 +394,7 @@ function validateVessel(vessel: VesselMaster) {
   return undefined;
 }
 
-export default function NewVesselFormAnt() {
+export default function NewVesselFormAnt({ onClose }: { onClose?: () => void } = {}) {
   const [profile, setProfile] = useState<PerfMode>("FULL");
   const [activeProfileIndex, setActiveProfileIndex] = useState(0);
   const [fuelIds, setFuelIds] = useState(DEFAULT_FUEL_IDS);
@@ -553,6 +553,10 @@ export default function NewVesselFormAnt() {
   }
 
   function handleClose() {
+    if (onClose) {
+      onClose();
+      return;
+    }
     setClosed(true);
   }
 

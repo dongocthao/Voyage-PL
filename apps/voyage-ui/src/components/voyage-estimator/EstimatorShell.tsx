@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { ConfigProvider } from "antd";
 import { StyleProvider } from "@ant-design/cssinjs";
-import RibbonHeader from "./RibbonHeader";
+import RibbonHeader, { type WorkTab } from "./RibbonHeader";
 import { veTheme, VE_FONT_FAMILY } from "./theme";
 import type { ToolbarCommand, ToolbarCommandState } from "./toolbarCommandManager";
 
@@ -15,6 +15,11 @@ export default function EstimatorShell({
   onReload,
   onToolbarCommand,
   toolbarCommandState,
+  showHeaderAndToolbar,
+  lastUpdatedAt,
+  lastUpdatedBy,
+  tabs,
+  onRenameTab,
 }: {
   title?: string;
   sheetKind?: SheetKind;
@@ -24,17 +29,30 @@ export default function EstimatorShell({
   onReload?: () => void;
   onToolbarCommand?: (command: ToolbarCommand) => void;
   toolbarCommandState?: Partial<ToolbarCommandState>;
+  showHeaderAndToolbar?: boolean;
+  lastUpdatedAt?: string;
+  lastUpdatedBy?: string;
+  tabs?: WorkTab[];
+  onRenameTab?: (tabKey: string, label: string) => void;
 }) {
-  const tabs =
-    sheetKind === "operation"
-      ? [
-          { key: "voyage1", label: "voyage1", icon: <span>□</span> },
-          { key: "operation1", label: "operation1", icon: <span>▣</span>, active: true },
-        ]
-      : [{ key: `${sheetKind}1`, label: `${sheetKind}1`, icon: <span>▣</span>, active: true }];
+  const shellTabs =
+    tabs ??
+    (sheetKind === "operation"
+      ? [{ key: "operation1", label: "operation1", icon: <span>[]</span>, active: true, renamable: true }]
+      : [
+          {
+            key: `${sheetKind}1`,
+            label: `${sheetKind}1`,
+            icon: <span>[]</span>,
+            active: true,
+            renamable: true,
+          },
+        ]);
 
-  const showHeaderAndToolbar =
-    sheetKind !== "voyage" && sheetKind !== "time charter" && sheetKind !== "cargo relet";
+  const shouldShowHeaderAndToolbar =
+    showHeaderAndToolbar ??
+    (sheetKind !== "voyage" && sheetKind !== "time charter" && sheetKind !== "cargo relet");
+  const shouldRenderRibbonHeader = true;
 
   return (
     <StyleProvider hashPriority="high">
@@ -43,15 +61,20 @@ export default function EstimatorShell({
           className="flex min-h-0 flex-col overflow-visible bg-white text-black"
           style={{ fontFamily: VE_FONT_FAMILY, fontSize: 11 }}
         >
-          <RibbonHeader
-            tabs={tabs}
-            onSave={onSave}
-            onOpen={onOpen}
-            onReload={onReload}
-            onCommand={onToolbarCommand}
-            commandState={toolbarCommandState}
-            showHeaderAndToolbar={showHeaderAndToolbar}
-          />
+          {shouldRenderRibbonHeader && (
+            <RibbonHeader
+              tabs={shellTabs}
+              onSave={onSave}
+              onOpen={onOpen}
+              onReload={onReload}
+              onCommand={onToolbarCommand}
+              commandState={toolbarCommandState}
+              showHeaderAndToolbar={shouldShowHeaderAndToolbar}
+              lastUpdatedAt={lastUpdatedAt}
+              lastUpdatedBy={lastUpdatedBy}
+              onRenameTab={onRenameTab}
+            />
+          )}
           <main className="overflow-visible px-2 py-2">{children}</main>
         </div>
       </ConfigProvider>

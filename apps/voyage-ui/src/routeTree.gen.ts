@@ -15,8 +15,10 @@ import { Route as AnalyzerRouteImport } from './routes/analyzer'
 import { Route as BunkerSimulatorRouteImport } from './routes/bunker-simulator'
 import { Route as CargoReletRouteImport } from './routes/cargo-relet'
 import { Route as Co2EmissionRouteImport } from './routes/co2-emission'
+import { Route as EstimateListRouteImport } from './routes/estimate-list'
 import { Route as FreightSimulatorRouteImport } from './routes/freight-simulator'
 import { Route as LaytimeRouteImport } from './routes/laytime'
+import { Route as LinerTermsRouteImport } from './routes/liner-terms'
 import { Route as LoadableQuantityCalcRouteImport } from './routes/loadable-quantity-calc'
 import { Route as NewCargoRouteImport } from './routes/new-cargo'
 import { Route as NewPortRouteImport } from './routes/new-port'
@@ -57,6 +59,11 @@ const Co2EmissionRoute = Co2EmissionRouteImport.update({
   path: '/co2-emission',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EstimateListRoute = EstimateListRouteImport.update({
+  id: '/estimate-list',
+  path: '/estimate-list',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FreightSimulatorRoute = FreightSimulatorRouteImport.update({
   id: '/freight-simulator',
   path: '/freight-simulator',
@@ -65,6 +72,11 @@ const FreightSimulatorRoute = FreightSimulatorRouteImport.update({
 const LaytimeRoute = LaytimeRouteImport.update({
   id: '/laytime',
   path: '/laytime',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LinerTermsRoute = LinerTermsRouteImport.update({
+  id: '/liner-terms',
+  path: '/liner-terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoadableQuantityCalcRoute = LoadableQuantityCalcRouteImport.update({
@@ -120,8 +132,10 @@ export interface FileRoutesByFullPath {
   '/bunker-simulator': typeof BunkerSimulatorRoute
   '/cargo-relet': typeof CargoReletRoute
   '/co2-emission': typeof Co2EmissionRoute
+  '/estimate-list': typeof EstimateListRoute
   '/freight-simulator': typeof FreightSimulatorRoute
   '/laytime': typeof LaytimeRoute
+  '/liner-terms': typeof LinerTermsRoute
   '/loadable-quantity-calc': typeof LoadableQuantityCalcRoute
   '/new-cargo': typeof NewCargoRoute
   '/new-port': typeof NewPortRoute
@@ -139,8 +153,10 @@ export interface FileRoutesByTo {
   '/bunker-simulator': typeof BunkerSimulatorRoute
   '/cargo-relet': typeof CargoReletRoute
   '/co2-emission': typeof Co2EmissionRoute
+  '/estimate-list': typeof EstimateListRoute
   '/freight-simulator': typeof FreightSimulatorRoute
   '/laytime': typeof LaytimeRoute
+  '/liner-terms': typeof LinerTermsRoute
   '/loadable-quantity-calc': typeof LoadableQuantityCalcRoute
   '/new-cargo': typeof NewCargoRoute
   '/new-port': typeof NewPortRoute
@@ -159,8 +175,10 @@ export interface FileRoutesById {
   '/bunker-simulator': typeof BunkerSimulatorRoute
   '/cargo-relet': typeof CargoReletRoute
   '/co2-emission': typeof Co2EmissionRoute
+  '/estimate-list': typeof EstimateListRoute
   '/freight-simulator': typeof FreightSimulatorRoute
   '/laytime': typeof LaytimeRoute
+  '/liner-terms': typeof LinerTermsRoute
   '/loadable-quantity-calc': typeof LoadableQuantityCalcRoute
   '/new-cargo': typeof NewCargoRoute
   '/new-port': typeof NewPortRoute
@@ -180,8 +198,10 @@ export interface FileRouteTypes {
     | '/bunker-simulator'
     | '/cargo-relet'
     | '/co2-emission'
+    | '/estimate-list'
     | '/freight-simulator'
     | '/laytime'
+    | '/liner-terms'
     | '/loadable-quantity-calc'
     | '/new-cargo'
     | '/new-port'
@@ -199,8 +219,10 @@ export interface FileRouteTypes {
     | '/bunker-simulator'
     | '/cargo-relet'
     | '/co2-emission'
+    | '/estimate-list'
     | '/freight-simulator'
     | '/laytime'
+    | '/liner-terms'
     | '/loadable-quantity-calc'
     | '/new-cargo'
     | '/new-port'
@@ -218,8 +240,10 @@ export interface FileRouteTypes {
     | '/bunker-simulator'
     | '/cargo-relet'
     | '/co2-emission'
+    | '/estimate-list'
     | '/freight-simulator'
     | '/laytime'
+    | '/liner-terms'
     | '/loadable-quantity-calc'
     | '/new-cargo'
     | '/new-port'
@@ -238,8 +262,10 @@ export interface RootRouteChildren {
   BunkerSimulatorRoute: typeof BunkerSimulatorRoute
   CargoReletRoute: typeof CargoReletRoute
   Co2EmissionRoute: typeof Co2EmissionRoute
+  EstimateListRoute: typeof EstimateListRoute
   FreightSimulatorRoute: typeof FreightSimulatorRoute
   LaytimeRoute: typeof LaytimeRoute
+  LinerTermsRoute: typeof LinerTermsRoute
   LoadableQuantityCalcRoute: typeof LoadableQuantityCalcRoute
   NewCargoRoute: typeof NewCargoRoute
   NewPortRoute: typeof NewPortRoute
@@ -295,6 +321,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Co2EmissionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/estimate-list': {
+      id: '/estimate-list'
+      path: '/estimate-list'
+      fullPath: '/estimate-list'
+      preLoaderRoute: typeof EstimateListRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/freight-simulator': {
       id: '/freight-simulator'
       path: '/freight-simulator'
@@ -307,6 +340,13 @@ declare module '@tanstack/react-router' {
       path: '/laytime'
       fullPath: '/laytime'
       preLoaderRoute: typeof LaytimeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/liner-terms': {
+      id: '/liner-terms'
+      path: '/liner-terms'
+      fullPath: '/liner-terms'
+      preLoaderRoute: typeof LinerTermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/loadable-quantity-calc': {
@@ -382,8 +422,10 @@ const rootRouteChildren: RootRouteChildren = {
   BunkerSimulatorRoute: BunkerSimulatorRoute,
   CargoReletRoute: CargoReletRoute,
   Co2EmissionRoute: Co2EmissionRoute,
+  EstimateListRoute: EstimateListRoute,
   FreightSimulatorRoute: FreightSimulatorRoute,
   LaytimeRoute: LaytimeRoute,
+  LinerTermsRoute: LinerTermsRoute,
   LoadableQuantityCalcRoute: LoadableQuantityCalcRoute,
   NewCargoRoute: NewCargoRoute,
   NewPortRoute: NewPortRoute,

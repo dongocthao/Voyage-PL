@@ -73,6 +73,8 @@ export class CargoReletEstimateSnapshotService {
     return {
       estimateId: saved.id.toString(),
       estimateFileId: saved.estimate_file_id.toString(),
+      updatedAt: saved.updated_at.toISOString(),
+      updatedByName: 'Admin',
       result: {
         totalDurationDays: result.total_duration_days,
         revenue: result.revenue,
@@ -93,13 +95,20 @@ export class CargoReletEstimateSnapshotService {
       where: { id: BigInt(estimateId) },
       include: {
         estimate_files: true,
+        users_estimates_updated_byTousers: true,
         estimate_vessels: true,
         estimate_cargo_lines: {
-          include: { estimate_cargo_freight_terms: true },
+          include: {
+            estimate_cargo_freight_terms: true,
+            companies: true,
+            cargoes: true,
+            ports_estimate_cargo_lines_loading_port_idToports: true,
+            ports_estimate_cargo_lines_discharging_port_idToports: true,
+          },
           orderBy: { line_no: 'asc' },
         },
         estimate_port_legs: {
-          include: { estimate_port_leg_cp_terms: true },
+          include: { estimate_port_leg_cp_terms: true, ports: true },
           orderBy: { leg_no: 'asc' },
         },
         estimate_results: true,
@@ -123,24 +132,36 @@ export class CargoReletEstimateSnapshotService {
         sheetName: estimate.sheet_name,
         estimateTypeCode: 'RELT',
         vesselId: estimate.estimate_vessels?.vessel_id?.toString(),
+        vesselName: estimate.estimate_vessels?.mv_name,
         bunkerProfileId:
           estimate.estimate_vessels?.bunker_profile_id?.toString(),
         performanceMode: estimate.estimate_vessels?.mode,
+        updatedAt: estimate.updated_at.toISOString(),
+        updatedByName:
+          estimate.users_estimates_updated_byTousers?.full_name ??
+          estimate.users_estimates_updated_byTousers?.username ??
+          'Admin',
         routingSuez: estimate.routing_suez,
         routingPanama: estimate.routing_panama,
         routingKiel: estimate.routing_kiel,
         marginSeaDays: toNumber(estimate.margin_sea_days),
         marginPortIdleDays: toNumber(estimate.margin_port_idle_days),
+        otherResultAmount: toNumber(result?.op_expense),
         timeDisplayUnit: estimate.time_display_unit,
         timezoneDisplayMode: estimate.timezone_display_mode,
       },
       cargoLines: estimate.estimate_cargo_lines.map((line) => ({
         lineNo: line.line_no,
         accountCompanyId: line.account_company_id?.toString(),
+        accountCompanyName: line.companies?.company_name,
         cargoId: line.cargo_id?.toString(),
-        cargoName: line.cargo_name ?? undefined,
+        cargoName: line.cargo_name ?? line.cargoes?.cargo_name ?? undefined,
         loadingPortId: line.loading_port_id?.toString(),
+        loadingPortName:
+          line.ports_estimate_cargo_lines_loading_port_idToports?.port_name,
         dischargingPortId: line.discharging_port_id?.toString(),
+        dischargingPortName:
+          line.ports_estimate_cargo_lines_discharging_port_idToports?.port_name,
         quantityMt: toNumber(line.quantity_mt),
         quantityUnit: line.quantity_unit,
         head: mapFreightTerm(line.estimate_cargo_freight_terms, cp_side.HEAD),
@@ -150,6 +171,7 @@ export class CargoReletEstimateSnapshotService {
         legNo: leg.leg_no,
         legType: leg.leg_type,
         portId: leg.port_id?.toString(),
+        portName: leg.ports?.port_name,
         distanceNm: toNumber(leg.distance_nm),
         ecaNm: toNumber(leg.eca_nm),
         wfPct: toNumber(leg.wf_pct),
@@ -298,7 +320,7 @@ async function createFreightTerm(
       add_comm_pct: term.addCommPct,
       brokerage_pct: term.brokeragePct,
       net_freight: term.netFreight,
-      total_freight: grossFreight(term),
+      total_freight: freightTermTotal(term),
       liner_cost_amount: term.linerCostAmount,
       is_freight_fixed: (term.freightType ?? 'F') === 'L',
     },
@@ -366,33 +388,72 @@ async function upsertEstimateVessel(
 }
 
 function calculateResult(snapshot: SaveCargoReletEstimateDto) {
-  const headNet = sum(
-    snapshot.cargoLines.map((line) => num(line.head.netFreight)),
-  );
-  const subNet = sum(
-    snapshot.cargoLines.map((line) => num(line.sub.netFreight)),
-  );
+  const headTotal = calculateCpTotal(snapshot, 'head');
+  const subTotal = calculateCpTotal(snapshot, 'sub');
+  const others = num(snapshot.header.otherResultAmount);
   const totalDuration = sum(
     snapshot.portLegs.map((leg) => num(leg.seaDays) + num(leg.portIdleDays)),
   );
-  const portCharge = sum(snapshot.portLegs.map((leg) => num(leg.portCharge)));
-  const profit = round2(subNet - headNet - portCharge);
+  const profit = round2(headTotal - subTotal + others);
 
   return {
     total_duration_days: round2(totalDuration),
-    revenue: round2(subNet),
-    op_expense: round2(portCharge),
-    op_profit: round2(subNet - portCharge),
-    total_freight: round2(headNet),
+    revenue: round2(headTotal),
+    op_expense: round2(others),
+    op_profit: round2(headTotal - subTotal),
+    total_freight: round2(subTotal),
     profit_usd: profit,
     tce_usd_day: totalDuration ? round2(profit / totalDuration) : 0,
-    daily_revenue: totalDuration ? round2(subNet / totalDuration) : 0,
-    daily_expense: totalDuration ? round2(portCharge / totalDuration) : 0,
+    daily_revenue: totalDuration ? round2(headTotal / totalDuration) : 0,
+    daily_expense: totalDuration ? round2(subTotal / totalDuration) : 0,
     daily_profit: totalDuration ? round2(profit / totalDuration) : 0,
   };
 }
 
-function grossFreight(term: CargoReletFreightTermDto) {
+function calculateCpTotal(
+  snapshot: SaveCargoReletEstimateDto,
+  side: 'head' | 'sub',
+) {
+  const ttlFreight = sum(
+    snapshot.cargoLines.map((line) => grossFreight(line, side)),
+  );
+  const addComm = sum(
+    snapshot.cargoLines.map(
+      (line) => grossFreight(line, side) * (num(line[side].addCommPct) / 100),
+    ),
+  );
+  const brokerage =
+    side === 'head'
+      ? sum(
+          snapshot.cargoLines.map(
+            (line) => grossFreight(line, 'head') * (num(line.head.brokeragePct) / 100),
+          ),
+        )
+      : 0;
+  const linerTerms = sum(
+    snapshot.cargoLines.map((line) => num(line[side].linerCostAmount)),
+  );
+  const demurrage = sum(
+    snapshot.portLegs.map((leg) => num(leg[side].demurrage)),
+  );
+  const despatch = sum(
+    snapshot.portLegs.map((leg) => num(leg[side].despatch)),
+  );
+
+  return round2(ttlFreight - addComm - brokerage - linerTerms + demurrage - despatch);
+}
+
+function grossFreight(
+  line: SaveCargoReletEstimateDto['cargoLines'][number],
+  side: 'head' | 'sub',
+) {
+  const term = line[side];
+  return (term.freightType ?? 'F') === 'L'
+    ? num(term.freightLumpsum)
+    : num(line.quantityMt) * num(term.freightRate);
+}
+
+function freightTermTotal(term: CargoReletFreightTermDto) {
   return (term.freightType ?? 'F') === 'L' ? term.freightLumpsum : undefined;
 }
 

@@ -67,6 +67,10 @@ export class CargoReletHeaderDto {
   marginPortIdleDays?: number;
 
   @IsOptional()
+  @IsNumber()
+  otherResultAmount?: number;
+
+  @IsOptional()
   @IsIn(['DAYS', 'HOURS'])
   timeDisplayUnit?: 'DAYS' | 'HOURS';
 

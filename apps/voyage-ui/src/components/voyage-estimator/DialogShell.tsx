@@ -9,6 +9,7 @@ export type DialogAction = {
   label: string;
   icon?: ReactNode;
   primary?: boolean;
+  disabled?: boolean;
   loading?: boolean;
   onClick?: () => void;
 };
@@ -141,6 +142,7 @@ export default function DialogShell({
                       size="small"
                       type={a.primary ? "primary" : "default"}
                       icon={a.icon}
+                      disabled={a.disabled}
                       loading={a.loading}
                       onClick={a.onClick ?? (!a.primary ? onClose : undefined)}
                       style={{ minWidth: 72 }}

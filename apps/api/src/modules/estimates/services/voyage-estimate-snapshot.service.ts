@@ -147,6 +147,8 @@ export class VoyageEstimateSnapshotService {
     return {
       estimateId: saved.id.toString(),
       estimateFileId: saved.estimate_file_id.toString(),
+      updatedAt: saved.updated_at.toISOString(),
+      updatedByName: 'Admin',
       result,
     };
   }
@@ -156,13 +158,20 @@ export class VoyageEstimateSnapshotService {
       where: { id: BigInt(estimateId) },
       include: {
         estimate_files: true,
+        users_estimates_updated_byTousers: true,
         estimate_vessels: true,
         estimate_cargo_lines: {
-          include: { estimate_cargo_freight_terms: true },
+          include: {
+            estimate_cargo_freight_terms: true,
+            companies: true,
+            cargoes: true,
+            ports_estimate_cargo_lines_loading_port_idToports: true,
+            ports_estimate_cargo_lines_discharging_port_idToports: true,
+          },
           orderBy: { line_no: 'asc' },
         },
         estimate_port_legs: {
-          include: { estimate_port_leg_cp_terms: true },
+          include: { estimate_port_leg_cp_terms: true, ports: true },
           orderBy: { leg_no: 'asc' },
         },
         estimate_expense_items: {
@@ -198,9 +207,15 @@ export class VoyageEstimateSnapshotService {
         voyageNo: estimate.voyage_no,
         remark: estimate.remark,
         vesselId: estimate.estimate_vessels?.vessel_id?.toString(),
+        vesselName: estimate.estimate_vessels?.mv_name,
         bunkerProfileId:
           estimate.estimate_vessels?.bunker_profile_id?.toString(),
         performanceMode: estimate.estimate_vessels?.mode,
+        updatedAt: estimate.updated_at.toISOString(),
+        updatedByName:
+          estimate.users_estimates_updated_byTousers?.full_name ??
+          estimate.users_estimates_updated_byTousers?.username ??
+          'Admin',
         routingSuez: estimate.routing_suez,
         routingPanama: estimate.routing_panama,
         routingKiel: estimate.routing_kiel,
@@ -216,10 +231,16 @@ export class VoyageEstimateSnapshotService {
         return {
           lineNo: line.line_no,
           accountCompanyId: line.account_company_id?.toString(),
+          accountCompanyName: line.companies?.company_name,
           cargoId: line.cargo_id?.toString(),
-          cargoName: line.cargo_name,
+          cargoName: line.cargo_name ?? line.cargoes?.cargo_name,
           loadingPortId: line.loading_port_id?.toString(),
+          loadingPortName:
+            line.ports_estimate_cargo_lines_loading_port_idToports?.port_name,
           dischargingPortId: line.discharging_port_id?.toString(),
+          dischargingPortName:
+            line.ports_estimate_cargo_lines_discharging_port_idToports
+              ?.port_name,
           quantity: toNumber(line.quantity_mt),
           unit: line.quantity_unit,
           freight: freight
@@ -243,6 +264,7 @@ export class VoyageEstimateSnapshotService {
           legNo: leg.leg_no,
           legType: leg.leg_type,
           portId: leg.port_id?.toString(),
+          portName: leg.ports?.port_name,
           distanceNm: toNumber(leg.distance_nm),
           ecaNm: toNumber(leg.eca_nm),
           wfPct: toNumber(leg.wf_pct),

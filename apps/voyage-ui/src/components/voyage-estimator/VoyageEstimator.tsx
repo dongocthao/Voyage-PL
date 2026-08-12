@@ -9,8 +9,11 @@ import LoadableQuantityApp from "./LoadableQuantityApp";
 import FreightSimulatorApp from "./FreightSimulatorApp";
 import BunkerSimulatorApp from "./BunkerSimulatorApp";
 import AnalyzerApp from "./AnalyzerApp";
+import { VoyageReportPreview } from "./VoyageReportPreview";
 import { cargoData, portRotationData, type CargoRow, type PortRow } from "./mockData";
 import { buildVoyageSnapshotPayload, mapVoyageSnapshotToRows } from "./voyageSnapshotMapper";
+import type { FreightSimulationResponse } from "@/lib/api/estimateSimulations";
+import { findOperationByEstimateId } from "@/lib/api/operationSnapshots";
 import {
   loadVoyageReportSummary,
   loadVoyageSnapshot,
@@ -46,6 +49,11 @@ type VoyageHeaderState = Pick<
   | "timezoneDisplayMode"
 >;
 
+type VoyageReportMetaState = {
+  estimateName?: string;
+  status?: string;
+};
+
 const defaultHeaderState: VoyageHeaderState = {
   estimateTypeCode: "TCOV",
   voyageNo: "",
@@ -61,11 +69,15 @@ const defaultHeaderState: VoyageHeaderState = {
 
 export default function VoyageEstimator({
   registerWorkspaceToolbar,
+  onToOperation,
 }: {
   registerWorkspaceToolbar?: RegisterWorkspaceToolbar;
+  onToOperation?: (estimateId: string) => void;
 } = {}) {
   const [modal, setModal] = useState<VoyageModal | null>(null);
   const [remarkOpen, setRemarkOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportPrintToken, setReportPrintToken] = useState<number>();
   const [cargoRows, setCargoRows] = useState<CargoRow[]>(cargoData);
   const [portRows, setPortRows] = useState<PortRow[]>(portRotationData);
   const [cargoSeedRows, setCargoSeedRows] = useState<CargoRow[]>(cargoData);
@@ -77,6 +89,11 @@ export default function VoyageEstimator({
   const [loadEstimateId, setLoadEstimateId] = useState("");
   const [openPosition, setOpenPosition] = useState("");
   const [apiResult, setApiResult] = useState<VoyageSnapshotResult>();
+  const [auditState, setAuditState] = useState({ updatedAt: "", updatedBy: "Admin" });
+  const [reportMeta, setReportMeta] = useState<VoyageReportMetaState>({
+    estimateName: "voyage1",
+    status: "DRAFT",
+  });
   const [snapshotDetails, setSnapshotDetails] = useState<SnapshotDetails>({});
   const [headerState, setHeaderState] = useState<VoyageHeaderState>(defaultHeaderState);
   const [lookups, setLookups] = useState<{
@@ -114,6 +131,7 @@ export default function VoyageEstimator({
     save: () => void;
     load: () => void;
     reload: () => void;
+    toOperation: () => void;
     clear: () => void;
   }>({
     resetSheet: () => undefined,
@@ -121,8 +139,10 @@ export default function VoyageEstimator({
     save: () => undefined,
     load: () => undefined,
     reload: () => undefined,
+    toOperation: () => undefined,
     clear: () => undefined,
   });
+  const routeEstimateLoadRef = useRef<string | undefined>(undefined);
 
   const formatError = (error: unknown, fallback: string) => {
     if (error instanceof VoyageApiError) {
@@ -156,6 +176,34 @@ export default function VoyageEstimator({
     manualExpenseAmount("ROUTING_SERVICE"),
     sum((snapshotDetails.miscOperationExpenseItems ?? []).map((item) => item.itemAmount)),
   );
+  const reportData = {
+    estimateId,
+    estimateName: reportMeta.estimateName,
+    status: reportMeta.status,
+    openPosition,
+    headerState: {
+      estimateTypeCode: headerState.estimateTypeCode,
+      voyageNo: headerState.voyageNo,
+      performanceMode: headerState.performanceMode,
+      hireDay: headerState.hireDay,
+      hireAddCommPct: headerState.hireAddCommPct,
+    },
+    auditState: {
+      updatedAt: auditState.updatedAt,
+      updatedBy: auditState.updatedBy,
+    },
+    lookups: {
+      vessels: lookups.vessels,
+      bunkerProfiles: lookups.bunkerProfiles,
+    },
+    vesselId: headerState.vesselId,
+    bunkerProfileId: headerState.bunkerProfileId,
+    cargoRows,
+    portRows,
+    operationExpenseRows,
+    result: apiResult,
+    remark: headerState.remark,
+  };
 
   useLayoutEffect(() => {
     let active = true;
@@ -298,6 +346,14 @@ export default function VoyageEstimator({
       setEstimateFileId(response.estimateFileId);
       setLoadEstimateId(response.estimateId);
       setApiResult(response.result);
+      setAuditState({
+        updatedAt: response.updatedAt ?? new Date().toISOString(),
+        updatedBy: response.updatedByName ?? "Admin",
+      });
+      setReportMeta((current) => ({
+        estimateName: current.estimateName ?? "voyage1",
+        status: current.status ?? "DRAFT",
+      }));
       setSaveState({
         status: "saved",
         message: `Saved estimate #${response.estimateId}. Profit USD ${response.result.profitUsd.toLocaleString("en-US")}`,
@@ -327,18 +383,7 @@ export default function VoyageEstimator({
     };
   };
 
-  const load = async () => {
-    if (!sheetExists) {
-      setSaveState({ status: "error", message: "There is no sheet to open." });
-      return;
-    }
-
-    const id = loadEstimateId.trim() || estimateId;
-    if (!id) {
-      setSaveState({ status: "error", message: "Enter an Estimate ID to load." });
-      return;
-    }
-
+  const loadById = async (id: string) => {
     setSaveState({ status: "loading" });
     try {
       const snapshot = await loadVoyageSnapshot(id);
@@ -351,6 +396,14 @@ export default function VoyageEstimator({
       setEstimateFileId(snapshot.header.estimateFileId);
       setLoadEstimateId(snapshot.header.estimateId ?? id);
       setApiResult(snapshot.result);
+      setAuditState({
+        updatedAt: snapshot.header.updatedAt ?? "",
+        updatedBy: snapshot.header.updatedByName ?? "Admin",
+      });
+      setReportMeta({
+        estimateName: snapshot.header.sheetName ?? "voyage1",
+        status: snapshot.header.status ?? "DRAFT",
+      });
       setSnapshotDetails({
         operationExpenseItems: snapshot.operationExpenseItems,
         miscOperationExpenseItems: snapshot.miscOperationExpenseItems,
@@ -387,6 +440,29 @@ export default function VoyageEstimator({
     }
   };
 
+  const load = async () => {
+    if (!sheetExists) {
+      setSaveState({ status: "error", message: "There is no sheet to open." });
+      return;
+    }
+
+    const id = loadEstimateId.trim() || estimateId;
+    if (!id) {
+      setSaveState({ status: "error", message: "Enter an Estimate ID to load." });
+      return;
+    }
+
+    await loadById(id);
+  };
+
+  useEffect(() => {
+    const routeEstimateId = new URLSearchParams(window.location.search).get("estimateId")?.trim();
+    if (!routeEstimateId || routeEstimateLoadRef.current === routeEstimateId) return;
+
+    routeEstimateLoadRef.current = routeEstimateId;
+    void loadById(routeEstimateId);
+  }, []);
+
   const loadReportSummary = async () => {
     if (!sheetExists) {
       setSaveState({ status: "error", message: "There is no sheet to open." });
@@ -411,6 +487,41 @@ export default function VoyageEstimator({
     }
   };
 
+  const toOperation = async () => {
+    if (!sheetExists) {
+      setSaveState({ status: "error", message: "There is no sheet to convert to Operation." });
+      return;
+    }
+
+    if (!estimateId) {
+      setSaveState({
+        status: "error",
+        message: "Save this Voyage Estimation before sending it to Operation.",
+      });
+      return;
+    }
+
+    try {
+      const existingOperation = await findOperationByEstimateId(estimateId);
+      if (existingOperation.exists) {
+        setSaveState({
+          status: "error",
+          message: `Operation #${existingOperation.operationId} already exists for estimate #${estimateId}.`,
+        });
+        return;
+      }
+
+      onToOperation?.(estimateId);
+    } catch (error) {
+      const formatted = formatError(error, "Operation lookup failed");
+      setSaveState({
+        status: "error",
+        message: formatted.message,
+        details: formatted.details,
+      });
+    }
+  };
+
   const resetSheet = () => {
     setCargoSeedRows(cargoData);
     setPortSeedRows(portRotationData);
@@ -421,6 +532,8 @@ export default function VoyageEstimator({
     setLoadEstimateId("");
     setOpenPosition("");
     setApiResult(undefined);
+    setAuditState({ updatedAt: "", updatedBy: "Admin" });
+    setReportMeta({ estimateName: "voyage1", status: "DRAFT" });
     setSnapshotDetails({});
     setHeaderState(defaultHeaderState);
     setSheetExists(true);
@@ -437,10 +550,41 @@ export default function VoyageEstimator({
     setEstimateFileId(undefined);
     setLoadEstimateId("");
     setApiResult(undefined);
+    setAuditState({ updatedAt: "", updatedBy: "Admin" });
+    setReportMeta({ estimateName: "voyage1", status: "DRAFT" });
     setSnapshotDetails({});
     setSheetExists(false);
     setReloadKey((key) => key + 1);
     setSaveState({ status: "idle" });
+  };
+
+  const applyFreightSimulation = (response?: FreightSimulationResponse) => {
+    if (!response?.adjustedSnapshot) return;
+    const adjustedByLine = new Map(
+      response.adjustedSnapshot.cargoLines.map((line) => [line.lineNo, line]),
+    );
+    setCargoRows((current) =>
+      current.map((row) => {
+        const adjusted = adjustedByLine.get(Number(row.no));
+        if (!adjusted) return row;
+        const totalFreight =
+          adjusted.freight.freightType === "L"
+            ? adjusted.freight.freightLumpsum
+            : (adjusted.quantity ?? 0) * (adjusted.freight.freightRate ?? 0);
+        return {
+          ...row,
+          frt: formatSimulationNumber(adjusted.freight.freightRate),
+          frtLumpsum: formatSimulationNumber(adjusted.freight.freightLumpsum),
+          totalFreight: formatSimulationNumber(totalFreight),
+          isFreightFixed: adjusted.freight.isFreightFixed,
+        };
+      }),
+    );
+    setModal(null);
+    setSaveState({
+      status: "loaded",
+      message: `Freight simulation applied. Profit ${response.adjustedResult.profitUsd.toLocaleString("en-US")}`,
+    });
   };
 
   workspaceToolbarActionsRef.current = {
@@ -449,6 +593,7 @@ export default function VoyageEstimator({
     save: () => void save(),
     load: () => void load(),
     reload: () => void loadReportSummary(),
+    toOperation: () => void toOperation(),
     clear: () => setSaveState({ status: "idle" }),
   };
 
@@ -463,6 +608,7 @@ export default function VoyageEstimator({
         saveAs: () => workspaceToolbarActionsRef.current.save(),
         open: () => workspaceToolbarActionsRef.current.load(),
         reload: () => workspaceToolbarActionsRef.current.reload(),
+        toOperation: () => workspaceToolbarActionsRef.current.toOperation(),
         undo: () => workspaceToolbarActionsRef.current.clear(),
         increase: () => workspaceToolbarActionsRef.current.clear(),
         decrease: () => workspaceToolbarActionsRef.current.clear(),
@@ -472,7 +618,14 @@ export default function VoyageEstimator({
   }, [estimateId, registerWorkspaceToolbar, sheetExists]);
 
   return (
-    <EstimatorShell sheetKind="voyage" onSave={save} onOpen={load} onReload={loadReportSummary}>
+    <EstimatorShell
+      sheetKind="voyage"
+      onSave={save}
+      onOpen={load}
+      onReload={loadReportSummary}
+      lastUpdatedAt={auditState.updatedAt}
+      lastUpdatedBy={auditState.updatedBy}
+    >
       {(apiResult ||
         saveState.status === "saved" ||
         saveState.status === "loaded" ||
@@ -577,6 +730,11 @@ export default function VoyageEstimator({
       <BottomPanels
         onOpenBunkerSimulator={() => setModal("bunker")}
         onOpenRemark={() => setRemarkOpen(true)}
+        onOpenReport={() => setReportOpen(true)}
+        onPrintReport={() => {
+          setReportOpen(true);
+          setReportPrintToken(Date.now());
+        }}
         result={apiResult}
         operationExpenseRows={operationExpenseRows}
         operationExpenseItems={currentOperationExpenseItems}
@@ -594,7 +752,11 @@ export default function VoyageEstimator({
       />
       {modal === "loadable" && <LoadableQuantityApp onClose={() => setModal(null)} />}
       {modal === "freight" && (
-        <FreightSimulatorApp onClose={() => setModal(null)} snapshot={currentSnapshot()} />
+        <FreightSimulatorApp
+          onClose={() => setModal(null)}
+          snapshot={currentSnapshot()}
+          onApply={applyFreightSimulation}
+        />
       )}
       {modal === "bunker" && <BunkerSimulatorApp onClose={() => setModal(null)} />}
       {modal === "analyzer" && (
@@ -615,6 +777,12 @@ export default function VoyageEstimator({
           }
         />
       </Modal>
+      <VoyageReportPreview
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        data={reportData}
+        autoPrintToken={reportPrintToken}
+      />
     </EstimatorShell>
   );
 }
@@ -804,4 +972,13 @@ function hasCargoInput(row: CargoRow) {
 
 function hasPortInput(row: PortRow) {
   return Boolean(row.type || row.port || row.distance || row.sea || row.departure);
+}
+
+function formatSimulationNumber(value: number | undefined) {
+  return value === undefined
+    ? ""
+    : value.toLocaleString("en-US", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 3,
+      });
 }

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Button, InputNumber, Table, Radio, Checkbox } from "antd";
+import { useMemo, useState } from "react";
+import { Alert, Button, InputNumber, Table, Radio, Checkbox } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { FundOutlined } from "@ant-design/icons";
 import DialogShell, { FieldRow } from "./DialogShell";
@@ -40,23 +40,51 @@ const cols: ColumnsType<FreightSimDisplayRow> = [
 export default function FreightSimulatorApp({
   onClose,
   snapshot,
+  onApply,
 }: {
   onClose?: () => void;
   snapshot?: VoyageSnapshotPayload;
+  onApply?: (response?: FreightSimulationResponse) => void;
 }) {
   const [targetProfitUsd, setTargetProfitUsd] = useState<number | null>(null);
+  const [targetDailyProfit, setTargetDailyProfit] = useState<number | null>(null);
+  const [targetMode, setTargetMode] = useState<"daily" | "total">("total");
   const [simulation, setSimulation] = useState<FreightSimulationResponse>();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const baseDuration = simulation?.baseResult.totalDurationDays ?? snapshot?.portLegs.reduce(
+    (total, leg) => total + (leg.seaDays ?? 0) + (leg.portIdleDays ?? 0),
+    0,
+  ) ?? 0;
+  const effectiveTargetTotal = useMemo(() => {
+    if (targetMode === "daily") return (targetDailyProfit ?? 0) * baseDuration;
+    return targetProfitUsd ?? 0;
+  }, [baseDuration, targetDailyProfit, targetMode, targetProfitUsd]);
+
   const runSimulation = async () => {
     if (!snapshot) return;
+    setError("");
     setLoading(true);
     try {
       setSimulation(
-        await simulateFreight({ snapshot, targetProfitUsd: targetProfitUsd ?? undefined }),
+        await simulateFreight({
+          snapshot,
+          targetProfitUsd: targetMode === "total" ? targetProfitUsd ?? undefined : undefined,
+          targetDailyProfit: targetMode === "daily" ? targetDailyProfit ?? undefined : undefined,
+        }),
       );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Freight simulation failed.");
     } finally {
       setLoading(false);
     }
+  };
+  const resetSimulation = () => {
+    setTargetProfitUsd(null);
+    setTargetDailyProfit(null);
+    setTargetMode("total");
+    setSimulation(undefined);
+    setError("");
   };
   const displayRows: FreightSimDisplayRow[] =
     simulation?.cargoAdjustments?.map((item) => ({
@@ -85,7 +113,27 @@ export default function FreightSimulatorApp({
   const displayTotal =
     simulation?.adjustedResult.totalFreight?.toLocaleString("en-US", {
       maximumFractionDigits: 1,
-    }) ?? freightSimTotal;
+    }) ??
+    snapshot?.cargoLines
+      .reduce((total, line) => {
+        const freight =
+          line.freight.freightType === "L"
+            ? (line.freight.freightLumpsum ?? 0)
+            : (line.quantity ?? 0) * (line.freight.freightRate ?? 0);
+        return total + freight;
+      }, 0)
+      .toLocaleString("en-US", { maximumFractionDigits: 1 }) ??
+    freightSimTotal;
+  const currentDailyProfit =
+    simulation?.baseResult.dailyProfit ??
+    (simulation?.baseResult.profitUsd && simulation.baseResult.totalDurationDays
+      ? simulation.baseResult.profitUsd / simulation.baseResult.totalDurationDays
+      : undefined);
+  const adjustedDailyProfit =
+    simulation?.adjustedResult.dailyProfit ??
+    (simulation?.adjustedResult.profitUsd && simulation.adjustedResult.totalDurationDays
+      ? simulation.adjustedResult.profitUsd / simulation.adjustedResult.totalDurationDays
+      : undefined);
 
   return (
     <DialogShell
@@ -94,36 +142,60 @@ export default function FreightSimulatorApp({
       width={730}
       bodyPadding={3}
       onClose={onClose}
-      actions={[{ label: "Apply", primary: true }, { label: "Cancel" }]}
+      actions={[
+        {
+          label: "Apply",
+          primary: true,
+          disabled: Boolean(snapshot) && !simulation,
+          onClick: () => onApply?.(simulation),
+        },
+        { label: "Cancel", onClick: onClose },
+      ]}
       footerLeft={
-        <Radio.Group size="small" defaultValue="dist">
-          <Radio value="dist">Distance Rate</Radio>
-          <Radio value="avg">Average Rate</Radio>
-        </Radio.Group>
+        <>
+          <Radio.Group size="small" value={targetMode} onChange={(event) => setTargetMode(event.target.value)}>
+            <Radio value="total">Target Total</Radio>
+            <Radio value="daily">Target Daily</Radio>
+          </Radio.Group>
+          <Button size="small" onClick={resetSimulation}>
+            Reset
+          </Button>
+        </>
       }
     >
       <div className="w-full">
         <div className="grid grid-cols-2 gap-x-4">
           <FieldRow label="Current Daily Profit">
             <TxtCell
-              value={simulation?.baseResult.dailyProfit?.toLocaleString("en-US") ?? "571.3"}
+              value={formatNumber(currentDailyProfit) ?? "571.3"}
               right
             />
           </FieldRow>
           <FieldRow label="Current Total Profit">
             <TxtCell
-              value={simulation?.baseResult.profitUsd.toLocaleString("en-US") ?? "36,308.4"}
+              value={formatNumber(simulation?.baseResult.profitUsd) ?? "36,308.4"}
               right
             />
           </FieldRow>
           <FieldRow label="Target Daily Profit">
-            <YCell value="571.3" />
+            {snapshot ? (
+              <InputNumber
+                size="small"
+                value={targetDailyProfit}
+                disabled={targetMode !== "daily"}
+                onChange={setTargetDailyProfit}
+                style={{ width: "100%" }}
+              />
+            ) : (
+              <YCell value="571.3" />
+            )}
           </FieldRow>
           <FieldRow label="Target Total Profit">
             {snapshot ? (
               <InputNumber
                 size="small"
                 value={targetProfitUsd}
+                disabled={targetMode !== "total"}
                 onChange={setTargetProfitUsd}
                 style={{ width: "100%" }}
               />
@@ -133,12 +205,21 @@ export default function FreightSimulatorApp({
           </FieldRow>
         </div>
         {snapshot && (
-          <div className="mt-2">
+          <div className="mt-2 flex items-center gap-2">
             <Button size="small" type="primary" loading={loading} onClick={runSimulation}>
               Simulate
             </Button>
+            <span className="text-xs text-slate-600">
+              Target Total: {formatNumber(effectiveTargetTotal) ?? "0.0"}
+            </span>
+            {adjustedDailyProfit !== undefined && (
+              <span className="text-xs text-slate-600">
+                Adjusted Daily: {formatNumber(adjustedDailyProfit)}
+              </span>
+            )}
           </div>
         )}
+        {error && <Alert className="mt-2" type="error" showIcon message={error} />}
 
         <div className="mt-2">
           <Table<FreightSimDisplayRow>
@@ -165,4 +246,11 @@ export default function FreightSimulatorApp({
       </div>
     </DialogShell>
   );
+}
+
+function formatNumber(value: number | undefined) {
+  return value?.toLocaleString("en-US", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
 }

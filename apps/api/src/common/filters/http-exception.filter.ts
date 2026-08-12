@@ -22,6 +22,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
       exception instanceof HttpException ? exception.getResponse() : undefined;
     const body = this.normalizeBody(exceptionResponse);
 
+    if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
+      console.error(exception);
+    }
+
     response.status(status).json({
       statusCode: status,
       code: body.code ?? (status === 500 ? 'INTERNAL_SERVER_ERROR' : 'HTTP_ERROR'),

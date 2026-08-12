@@ -10,6 +10,9 @@ import {
 import { VE_COLORS } from "./theme";
 import { arrivalReport, departureReport, FUEL_TYPES } from "./operationData";
 
+export type ArrivalReportData = typeof arrivalReport;
+export type DepartureReportData = typeof departureReport;
+
 const B = { borderColor: VE_COLORS.border };
 const HD: React.CSSProperties = {
   background: VE_COLORS.headerBg,
@@ -164,8 +167,18 @@ function ReportModal({
   );
 }
 
-export function ArrivalReportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const d = arrivalReport;
+export function ArrivalReportModal({
+  open,
+  onClose,
+  report,
+  onFix,
+}: {
+  open: boolean;
+  onClose: () => void;
+  report?: ArrivalReportData;
+  onFix?: (report: ArrivalReportData) => void;
+}) {
+  const d = report ?? arrivalReport;
   return (
     <ReportModal
       open={open}
@@ -181,7 +194,14 @@ export function ArrivalReportModal({ open, onClose }: { open: boolean; onClose: 
             </Button>
           </div>
           <div className="flex gap-2">
-            <Button size="small" type="primary">
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => {
+                onFix?.(d);
+                onClose();
+              }}
+            >
               Fix Arrival
             </Button>
             <Button size="small" onClick={onClose}>
@@ -266,12 +286,16 @@ export function DepartureReportModal({
   open,
   onClose,
   onOpenLaytime,
+  report,
+  onFix,
 }: {
   open: boolean;
   onClose: () => void;
   onOpenLaytime?: () => void;
+  report?: DepartureReportData;
+  onFix?: (report: DepartureReportData) => void;
 }) {
-  const d = departureReport;
+  const d = report ?? departureReport;
   return (
     <ReportModal
       open={open}
@@ -287,7 +311,14 @@ export function DepartureReportModal({
             </Button>
           </div>
           <div className="flex gap-2">
-            <Button size="small" type="primary">
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => {
+                onFix?.(d);
+                onClose();
+              }}
+            >
               Fix Departure
             </Button>
             <Button size="small" onClick={onClose}>

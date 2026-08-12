@@ -8,6 +8,7 @@ export type VoyageSnapshotPayload = {
     voyageNo?: string;
     remark?: string;
     vesselId?: string;
+    vesselName?: string;
     bunkerProfileId?: string;
     performanceMode?: "FULL" | "ECO" | "CUSTOM1" | "CUSTOM2" | "CUSTOM3";
     routingSuez?: boolean;
@@ -23,10 +24,13 @@ export type VoyageSnapshotPayload = {
   cargoLines: Array<{
     lineNo: number;
     accountCompanyId?: string;
+    accountCompanyName?: string;
     cargoId?: string;
     cargoName?: string;
     loadingPortId?: string;
+    loadingPortName?: string;
     dischargingPortId?: string;
+    dischargingPortName?: string;
     quantity?: number;
     unit: string;
     freight: {
@@ -45,6 +49,7 @@ export type VoyageSnapshotPayload = {
     legNo: number;
     legType: "BALLAST" | "LOADING" | "DISCHARGE" | "CANAL" | "BUNKER" | "OTHER";
     portId?: string;
+    portName?: string;
     distanceNm?: number;
     ecaNm?: number;
     wfPct?: number;
@@ -95,6 +100,8 @@ export type VoyageSnapshotPayload = {
 export type SaveVoyageSnapshotResponse = {
   estimateId: string;
   estimateFileId: string;
+  updatedAt?: string;
+  updatedByName?: string;
   result: VoyageSnapshotResult;
 };
 
@@ -120,6 +127,11 @@ export type VoyageSnapshotResult = {
 };
 
 export type LoadedVoyageSnapshot = VoyageSnapshotPayload & {
+  header: VoyageSnapshotPayload["header"] & {
+    status?: string;
+    updatedAt?: string;
+    updatedByName?: string;
+  };
   result?: VoyageSnapshotResult;
 };
 
@@ -158,6 +170,11 @@ export async function saveVoyageSnapshot(payload: VoyageSnapshotPayload) {
 
   return (await response.json()) as SaveVoyageSnapshotResponse;
 }
+
+export type SnapshotAudit = {
+  updatedAt?: string;
+  updatedByName?: string;
+};
 
 export async function loadVoyageSnapshot(estimateId: string) {
   const response = await fetch(`${API_BASE_URL}/estimates/voyage-snapshots/${estimateId}`);

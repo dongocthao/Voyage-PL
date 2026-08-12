@@ -1,0 +1,9 @@
+ALTER TABLE companies
+  ADD COLUMN IF NOT EXISTS country_name VARCHAR(120),
+  ADD COLUMN IF NOT EXISTS business_type_name VARCHAR(120);
+
+ALTER TABLE addresses
+  ADD COLUMN IF NOT EXISTS country_name VARCHAR(120);
+
+ALTER TABLE contact_channels
+  ADD COLUMN IF NOT EXISTS im_type_name VARCHAR(80);

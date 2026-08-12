@@ -10,6 +10,7 @@ import {
   DashboardOutlined,
   ExperimentOutlined,
   SearchOutlined,
+  PrinterOutlined,
 } from "@ant-design/icons";
 import { SectionTitle, TxtCell, YCell } from "./cells";
 import { VE_COLORS } from "./theme";
@@ -299,6 +300,8 @@ function emptyMiscItem(itemId: number): MiscItem {
 export default function BottomPanels({
   onOpenBunkerSimulator,
   onOpenRemark,
+  onOpenReport,
+  onPrintReport,
   result,
   operationExpenseRows,
   operationExpenseItems = [],
@@ -314,6 +317,8 @@ export default function BottomPanels({
 }: {
   onOpenBunkerSimulator?: () => void;
   onOpenRemark?: () => void;
+  onOpenReport?: () => void;
+  onPrintReport?: () => void;
   result?: VoyageSnapshotResult;
   operationExpenseRows?: Array<[string, string, string, string]>;
   operationExpenseItems?: OperationExpenseItem[];
@@ -430,6 +435,12 @@ export default function BottomPanels({
           <Button size="small" icon={<SwapOutlined />}>
             Comparison
           </Button>
+          <Button size="small" icon={<FileTextOutlined />} onClick={onOpenReport}>
+            Report
+          </Button>
+          <Button size="small" icon={<PrinterOutlined />} onClick={onPrintReport}>
+            Print
+          </Button>
           <Button size="small" icon={<FileTextOutlined />} onClick={onOpenRemark}>
             Remark
           </Button>
@@ -462,7 +473,7 @@ export default function BottomPanels({
             <TxtCell value={formatNumber(miscRevenueTotal)} right readOnly />
           </div>
           <div className="border-r px-1 py-[3px]" style={{ borderColor: VE_COLORS.border }}>
-            Profit (USD)
+            Profit
           </div>
           <div className="px-1 py-[3px] text-right" style={{ color: VE_COLORS.sectionTitle }}>
             {displayProfit}

@@ -1,16 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { NewCargoForm } from "@/components/new-cargo-form";
 
 export const Route = createFileRoute("/new-cargo")({
+  head: () => ({
+    meta: [
+      { title: "New Cargo - IMOS Cargo Name Setup" },
+      {
+        name: "description",
+        content:
+          "Create a cargo record with short name, cargo group, stowage factor, UN number and handling flags.",
+      },
+      { property: "og:title", content: "New Cargo - IMOS Cargo Name Setup" },
+      {
+        property: "og:description",
+        content:
+          "Create a cargo record with short name, cargo group, stowage factor, UN number and handling flags.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
   component: NewCargoPage,
 });
 
 function NewCargoPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#F0F3F6] p-4">
-      <div className="rounded border border-[#dcdfe6] bg-white px-8 py-6 text-center shadow-sm">
-        <h1 className="text-lg font-bold text-[#102A3A]">Cargo</h1>
-        <p className="mt-2 text-sm text-slate-500">Chức năng đang phát triển</p>
-      </div>
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8">
+      <NewCargoForm />
     </div>
   );
 }

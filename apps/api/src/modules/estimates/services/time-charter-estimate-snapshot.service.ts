@@ -73,6 +73,8 @@ export class TimeCharterEstimateSnapshotService {
     return {
       estimateId: saved.id.toString(),
       estimateFileId: saved.estimate_file_id.toString(),
+      updatedAt: saved.updated_at.toISOString(),
+      updatedByName: 'Admin',
       result: {
         totalDurationDays: result.total_duration_days,
         revenue: result.revenue,
@@ -92,6 +94,7 @@ export class TimeCharterEstimateSnapshotService {
       where: { id: BigInt(estimateId) },
       include: {
         estimate_files: true,
+        users_estimates_updated_byTousers: true,
         estimate_vessels: true,
         estimate_charter_terms: {
           include: {
@@ -126,6 +129,11 @@ export class TimeCharterEstimateSnapshotService {
         bunkerProfileId:
           estimate.estimate_vessels?.bunker_profile_id?.toString(),
         performanceMode: estimate.estimate_vessels?.mode,
+        updatedAt: estimate.updated_at.toISOString(),
+        updatedByName:
+          estimate.users_estimates_updated_byTousers?.full_name ??
+          estimate.users_estimates_updated_byTousers?.username ??
+          'Admin',
         routingSuez: estimate.routing_suez,
         routingPanama: estimate.routing_panama,
         routingKiel: estimate.routing_kiel,

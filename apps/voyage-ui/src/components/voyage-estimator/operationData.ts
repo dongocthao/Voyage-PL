@@ -66,6 +66,8 @@ export type OpCargoRow = {
   unit: string;
   frt: string;
   term: string;
+  frtType: "F" | "L";
+  frtLumpsum: string;
   totalFreight: string;
   aComm: string;
   brkg: string;
@@ -85,6 +87,8 @@ export const opCargoData: OpCargoRow[] = [
     unit: "MT",
     frt: "9.50",
     term: "FIO",
+    frtType: "F",
+    frtLumpsum: "",
     totalFreight: "522,500.00",
     aComm: "3.75 %",
     brkg: "1.25 %",
@@ -102,6 +106,8 @@ export const opCargoData: OpCargoRow[] = [
     unit: "",
     frt: "",
     term: "",
+    frtType: "F",
+    frtLumpsum: "",
     totalFreight: "",
     aComm: "",
     brkg: "",
@@ -113,6 +119,7 @@ export const opCargoData: OpCargoRow[] = [
 export const opCargoTotals = {
   quantity: "55,000.00",
   frt: "9.50",
+  frtLumpsum: "0.00",
   totalFreight: "522,500.00",
   aComm: "3.75 %",
   brkg: "1.25 %",

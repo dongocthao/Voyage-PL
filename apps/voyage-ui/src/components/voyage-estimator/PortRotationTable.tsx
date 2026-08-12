@@ -14,6 +14,7 @@ import { RowToolbar } from "./CargoTable";
 import { useRowOps } from "./useRowOps";
 import { useResizableColumns } from "./useResizableColumns";
 import type { LookupItem } from "@/lib/api/masterData";
+import { buildPortRotationSummary, classifySeaStateByCargoFlow } from "./portRotationSummary";
 
 const isMargin = (r: PortRow) => r.key === "margin";
 type PortField = keyof PortRow;
@@ -320,6 +321,24 @@ export default function PortRotationTable({
     [cargoRows, port.rows],
   );
   const totals = portTotals(calculatedRows);
+  const summaryText = useMemo(
+    () =>
+      buildPortRotationSummary(calculatedRows, {
+        isSummaryRow: isMargin,
+        type: (row) => row.type,
+        sea: (row) => row.sea,
+        idle: (row) => row.idle,
+        working: (row) => row.working,
+        eca: (row) => row.eca,
+        wf: (row) => row.wf,
+        spd: (row) => row.spd,
+        departure: (row) => row.departure,
+        classifySeaState: (row, index, activeRows) =>
+          classifySeaStateByCargoFlow(activeRows, row, index, (item) => item.type),
+        classifyMarginSeaState: (_row, _activeRows, lastSeaState) => lastSeaState,
+      }),
+    [calculatedRows],
+  );
 
   useEffect(() => {
     onRowsChange?.(calculatedRows);
@@ -354,7 +373,9 @@ export default function PortRotationTable({
         >
           KIEL
         </Checkbox>
-        <span className="text-[11px] text-gray-600">{portSummary}</span>
+        <span className="text-[11px] font-bold text-gray-700" style={{ marginLeft: 430 }}>
+          {summaryText || portSummary}
+        </span>
       </div>
 
       <Table<PortRow>

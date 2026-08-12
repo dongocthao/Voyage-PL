@@ -1,4 +1,5 @@
-import { Avatar, Badge, Space, Tooltip } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { Avatar, Badge, Input, Space, Tooltip } from "antd";
 import {
   AppstoreOutlined,
   BellOutlined,
@@ -26,12 +27,18 @@ import { VE_COLORS } from "./theme";
 import type { ToolbarCommand, ToolbarCommandState } from "./toolbarCommandManager";
 
 const DEFAULT_TABS = [
-  { key: "voyage1", label: "voyage1", icon: <ProfileOutlined />, active: true },
+  { key: "voyage1", label: "voyage1", icon: <ProfileOutlined />, active: true, renamable: true },
   { key: "relet", label: "cargo relet1", icon: <BorderOutlined /> },
   { key: "tc", label: "time charter1", icon: <ClockCircleOutlined /> },
 ];
 
-export type WorkTab = { key: string; label: string; icon: React.ReactNode; active?: boolean };
+export type WorkTab = {
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  active?: boolean;
+  renamable?: boolean;
+};
 
 export default function RibbonHeader({
   title = "Voyage Estimator - Estimation 5011",
@@ -42,6 +49,9 @@ export default function RibbonHeader({
   onCommand,
   commandState,
   showHeaderAndToolbar = true,
+  lastUpdatedAt,
+  lastUpdatedBy = "Admin",
+  onRenameTab,
 }: {
   title?: string;
   tabs?: WorkTab[];
@@ -51,6 +61,9 @@ export default function RibbonHeader({
   onCommand?: (command: ToolbarCommand) => void;
   commandState?: Partial<ToolbarCommandState>;
   showHeaderAndToolbar?: boolean;
+  lastUpdatedAt?: string;
+  lastUpdatedBy?: string;
+  onRenameTab?: (tabKey: string, label: string) => void;
 }) {
   const actions = [
     { key: "new", icon: <FileAddOutlined />, label: "New\nSheet" },
@@ -66,6 +79,43 @@ export default function RibbonHeader({
     { key: "options", icon: <SettingOutlined />, label: "Options" },
     { key: "toOperation", icon: <AppstoreOutlined />, label: "To\nOperation" },
   ];
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [draftLabel, setDraftLabel] = useState("");
+  const [labelOverrides, setLabelOverrides] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!editingKey) return;
+    const activeTab = tabs.find((tab) => tab.key === editingKey);
+    if (!activeTab) {
+      setEditingKey(null);
+      setDraftLabel("");
+      return;
+    }
+    setDraftLabel(labelOverrides[editingKey] ?? activeTab.label);
+  }, [editingKey, labelOverrides, tabs]);
+
+  const renderedTabs = useMemo(
+    () =>
+      tabs.map((tab) => ({
+        ...tab,
+        displayLabel: labelOverrides[tab.key] ?? tab.label,
+      })),
+    [labelOverrides, tabs],
+  );
+
+  const startEditing = (tab: WorkTab) => {
+    if (!tab.renamable) return;
+    setEditingKey(tab.key);
+    setDraftLabel(labelOverrides[tab.key] ?? tab.label);
+  };
+
+  const commitTabLabel = (tab: WorkTab) => {
+    const nextLabel = draftLabel.trim() || tab.label;
+    setLabelOverrides((current) => ({ ...current, [tab.key]: nextLabel }));
+    setEditingKey(null);
+    setDraftLabel("");
+    onRenameTab?.(tab.key, nextLabel);
+  };
 
   return (
     <div className="shrink-0">
@@ -100,7 +150,7 @@ export default function RibbonHeader({
                   icon={<UserOutlined />}
                   style={{ background: "rgba(255,255,255,.25)" }}
                 />
-                <span className="text-[12px]">erin</span>
+                <span className="text-[12px]">Admin</span>
               </span>
             </Space>
           </header>
@@ -161,7 +211,7 @@ export default function RibbonHeader({
         style={{ borderColor: VE_COLORS.border }}
       >
         <div className="flex h-full items-end gap-1">
-          {tabs.map((tab) => (
+          {renderedTabs.map((tab) => (
             <div
               key={tab.key}
               className="flex items-center gap-1 border border-b-0 px-2 py-[3px] text-[12px]"
@@ -170,9 +220,26 @@ export default function RibbonHeader({
                 background: tab.active ? "#fff" : "#E8EDF3",
                 color: tab.active ? VE_COLORS.titleBar : "#555",
               }}
+              onDoubleClick={() => startEditing(tab)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                startEditing(tab);
+              }}
             >
               <span>{tab.icon}</span>
-              {tab.label}
+              {editingKey === tab.key ? (
+                <Input
+                  size="small"
+                  value={draftLabel}
+                  autoFocus
+                  onChange={(event) => setDraftLabel(event.target.value)}
+                  onBlur={() => commitTabLabel(tab)}
+                  onPressEnter={() => commitTabLabel(tab)}
+                  className="h-[20px] w-[120px] text-[11px]"
+                />
+              ) : (
+                <span>{tab.displayLabel}</span>
+              )}
               {tab.active && (
                 <>
                   <EditOutlined style={{ fontSize: 10 }} />
@@ -186,9 +253,18 @@ export default function RibbonHeader({
           className="rounded-sm border px-2 py-[1px] text-[11px]"
           style={{ borderColor: VE_COLORS.border }}
         >
-          Last Update : 2020-08-06 17:11, erin
+          Last Update : {formatLastUpdate(lastUpdatedAt)}, {lastUpdatedBy || "Admin"}
         </div>
       </div>
     </div>
   );
+}
+
+function formatLastUpdate(value?: string) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
 }

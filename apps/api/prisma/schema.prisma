@@ -7,6 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model app_settings {
+  scope      String    @id @db.VarChar(50)
+  settings   Json
+  updated_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_by BigInt?
+  users      users?    @relation(fields: [updated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model actual_voyage_bunker_by_activity {
   id               BigInt                      @id @default(autoincrement())
@@ -314,6 +322,7 @@ model addresses {
   contact_person_id BigInt?
   label             String           @default("Address") @db.VarChar(50)
   country_id        Int?             @db.SmallInt
+  country_name      String?          @db.VarChar(120)
   province          String?          @db.VarChar(100)
   post_code         String?          @db.VarChar(20)
   city              String?          @db.VarChar(100)
@@ -340,6 +349,8 @@ model companies {
   id                                                                BigInt                      @id @default(autoincrement())
   company_name                                                      String                      @db.VarChar(200)
   country_id                                                        Int?                        @db.SmallInt
+  country_name                                                      String?                     @db.VarChar(120)
+  business_type_name                                                String?                     @db.VarChar(120)
   time_zone                                                         String?                     @db.VarChar(10)
   remark                                                            String?
   created_at                                                        DateTime                    @default(now()) @db.Timestamptz(6)
@@ -404,6 +415,7 @@ model contact_channels {
   channel_type      contact_channel_type
   country_code      String?              @db.VarChar(5)
   im_type_id        Int?                 @db.SmallInt
+  im_type_name      String?              @db.VarChar(80)
   value             String               @db.VarChar(200)
   sort_order        Int                  @default(1) @db.SmallInt
   companies         companies?           @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -858,6 +870,18 @@ model ports {
   utc_offset_min                                                                 Int?                        @db.SmallInt
   latitude                                                                       Decimal?                    @db.Decimal(9, 6)
   longitude                                                                      Decimal?                    @db.Decimal(9, 6)
+  port_type_name                                                                 String?                     @db.VarChar(80)
+  country_name                                                                   String?                     @db.VarChar(120)
+  state_code                                                                     String?                     @db.VarChar(30)
+  port_operator                                                                  String?                     @db.VarChar(120)
+  port_no                                                                        Int?
+  time_zone_code                                                                 String?                     @db.VarChar(50)
+  latitude_text                                                                  String?                     @db.VarChar(30)
+  longitude_text                                                                 String?                     @db.VarChar(30)
+  region_code                                                                    String?                     @db.VarChar(50)
+  loadline_zone                                                                  String?                     @db.VarChar(50)
+  std_gmt_offset                                                                 Decimal?                    @db.Decimal(5, 2)
+  dst_gmt_offset                                                                 Decimal?                    @db.Decimal(5, 2)
   is_canal                                                                       Boolean                     @default(false)
   port_type_id                                                                   Int?                        @db.SmallInt
   port_status                                                                    port_status_type            @default(ACTIVE)
@@ -893,6 +917,7 @@ model users {
   created_at                                      DateTime                  @default(now()) @db.Timestamptz(6)
   actual_voyage_off_hires                         actual_voyage_off_hires[]
   actual_voyages                                  actual_voyages[]
+  app_settings                                    app_settings[]
   companies                                       companies[]
   contact_persons                                 contact_persons[]
   estimate_files_estimate_files_created_byTousers estimate_files[]          @relation("estimate_files_created_byTousers")
@@ -1139,6 +1164,20 @@ model cargoes {
   default_unit              String                      @default("MT") @db.VarChar(20)
   stowage_factor            Decimal?                    @db.Decimal(10, 4)
   stowage_factor_unit       String                      @default("CBM/MT") @db.VarChar(30)
+  cargo_group               String?                     @db.VarChar(80)
+  cargo_class               String?                     @db.VarChar(80)
+  imo_name                  String?                     @db.VarChar(150)
+  ibc_code                  String?                     @db.VarChar(50)
+  imsbc_code                String?                     @db.VarChar(50)
+  bill_by                   String?                     @db.VarChar(50)
+  stowage_factor_ft3        Decimal?                    @db.Decimal(10, 4)
+  un_number                 String?                     @db.VarChar(30)
+  hazard_class              String?                     @db.VarChar(30)
+  product_code              String?                     @db.VarChar(50)
+  capacity_basis            String?                     @db.VarChar(30)
+  preclearance_us_canada    Boolean                     @default(false)
+  is_dangerous              Boolean                     @default(false)
+  special_handling_required Boolean                     @default(false)
   description               String?
   is_active                 Boolean                     @default(true)
   created_at                DateTime                    @default(now()) @db.Timestamptz(6)

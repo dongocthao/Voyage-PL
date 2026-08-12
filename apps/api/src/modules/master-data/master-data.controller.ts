@@ -1,5 +1,9 @@
 import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { UpsertSystemOptionsDto } from './dto/app-settings.dto';
+import { UpsertCargoMasterDto } from './dto/cargo-master.dto';
+import { UpsertCompanyMasterDto } from './dto/company-master.dto';
+import { UpsertPortMasterDto } from './dto/port-master.dto';
 import { UpsertVesselMasterDto } from './dto/vessel-master.dto';
 import { MasterDataService } from './master-data.service';
 
@@ -8,9 +12,34 @@ import { MasterDataService } from './master-data.service';
 export class MasterDataController {
   constructor(private readonly masterData: MasterDataService) {}
 
+  @Get('settings/system-options')
+  systemOptions() {
+    return this.masterData.systemOptions();
+  }
+
+  @Put('settings/system-options')
+  saveSystemOptions(@Body() body: UpsertSystemOptionsDto) {
+    return this.masterData.saveSystemOptions(body);
+  }
+
   @Get('cargoes')
   cargoes(@Query('q') query?: string) {
     return this.masterData.cargoes(query);
+  }
+
+  @Get('cargoes/:id')
+  cargo(@Param('id') id: string) {
+    return this.masterData.cargo(id);
+  }
+
+  @Post('cargoes')
+  createCargo(@Body() body: UpsertCargoMasterDto) {
+    return this.masterData.createCargo(body);
+  }
+
+  @Put('cargoes/:id')
+  updateCargo(@Param('id') id: string, @Body() body: UpsertCargoMasterDto) {
+    return this.masterData.updateCargo(id, body);
   }
 
   @Get('ports')
@@ -18,9 +47,39 @@ export class MasterDataController {
     return this.masterData.ports(query);
   }
 
+  @Get('ports/:id')
+  port(@Param('id') id: string) {
+    return this.masterData.port(id);
+  }
+
+  @Post('ports')
+  createPort(@Body() body: UpsertPortMasterDto) {
+    return this.masterData.createPort(body);
+  }
+
+  @Put('ports/:id')
+  updatePort(@Param('id') id: string, @Body() body: UpsertPortMasterDto) {
+    return this.masterData.updatePort(id, body);
+  }
+
   @Get('companies')
   companies(@Query('q') query?: string) {
     return this.masterData.companies(query);
+  }
+
+  @Get('companies/:id')
+  company(@Param('id') id: string) {
+    return this.masterData.company(id);
+  }
+
+  @Post('companies')
+  createCompany(@Body() body: UpsertCompanyMasterDto) {
+    return this.masterData.createCompany(body);
+  }
+
+  @Put('companies/:id')
+  updateCompany(@Param('id') id: string, @Body() body: UpsertCompanyMasterDto) {
+    return this.masterData.updateCompany(id, body);
   }
 
   @Get('cp-terms')

@@ -9,6 +9,7 @@ export type CargoReletSnapshotPayload = {
     sheetName: string;
     estimateTypeCode: "RELT";
     vesselId?: string;
+    vesselName?: string;
     bunkerProfileId?: string;
     performanceMode?: "FULL" | "ECO" | "CUSTOM1" | "CUSTOM2" | "CUSTOM3";
     routingSuez?: boolean;
@@ -16,16 +17,20 @@ export type CargoReletSnapshotPayload = {
     routingKiel?: boolean;
     marginSeaDays?: number;
     marginPortIdleDays?: number;
+    otherResultAmount?: number;
     timeDisplayUnit?: "DAYS" | "HOURS";
     timezoneDisplayMode?: "PORT_LOCAL" | "UTC";
   };
   cargoLines: Array<{
     lineNo: number;
     accountCompanyId?: string;
+    accountCompanyName?: string;
     cargoId?: string;
     cargoName?: string;
     loadingPortId?: string;
+    loadingPortName?: string;
     dischargingPortId?: string;
+    dischargingPortName?: string;
     quantityMt?: number;
     quantityUnit?: string;
     head: CargoReletFreightTermPayload;
@@ -35,6 +40,7 @@ export type CargoReletSnapshotPayload = {
     legNo: number;
     legType: "BALLAST" | "LOADING" | "DISCHARGE" | "CANAL" | "BUNKER" | "OTHER";
     portId?: string;
+    portName?: string;
     distanceNm?: number;
     ecaNm?: number;
     wfPct?: number;
@@ -69,10 +75,16 @@ export type CargoReletPortCpTermPayload = {
 export type SaveCargoReletSnapshotResponse = {
   estimateId: string;
   estimateFileId: string;
+  updatedAt?: string;
+  updatedByName?: string;
   result: VoyageSnapshotResult;
 };
 
 export type LoadedCargoReletSnapshot = CargoReletSnapshotPayload & {
+  header: CargoReletSnapshotPayload["header"] & {
+    updatedAt?: string;
+    updatedByName?: string;
+  };
   result?: VoyageSnapshotResult;
 };
 

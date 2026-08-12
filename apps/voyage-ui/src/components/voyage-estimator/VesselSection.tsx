@@ -264,10 +264,10 @@ function VesselBlock({
         className="grid border"
         style={{
           borderColor: VE_COLORS.border,
-          gridTemplateColumns: "1fr 90px 80px 70px 70px 70px",
+          gridTemplateColumns: "1fr 90px 70px 140px",
         }}
       >
-        {["MV", "DWT", "Draft (M)", "TPC", "Built", "Kind"].map((h) => (
+        {["MV", "DWT", "Built", "Kind"].map((h) => (
           <div
             key={h}
             className="border-b border-r px-1 py-[3px] font-medium last:border-r-0"
@@ -298,12 +298,6 @@ function VesselBlock({
           <TxtCell value={displayVessel.dwt} right readOnly />
         </div>
         <div className="border-r" style={{ borderColor: VE_COLORS.border }}>
-          <TxtCell value={displayVessel.draft} right readOnly />
-        </div>
-        <div className="border-r" style={{ borderColor: VE_COLORS.border }}>
-          <TxtCell value={displayVessel.tpc} right readOnly />
-        </div>
-        <div className="border-r" style={{ borderColor: VE_COLORS.border }}>
           <TxtCell value={displayVessel.built} right readOnly />
         </div>
         <div>
@@ -316,10 +310,10 @@ function VesselBlock({
         className="mt-[2px] grid border"
         style={{
           borderColor: VE_COLORS.border,
-          gridTemplateColumns: "68px 84px 0.75fr 1.125fr 1.125fr",
+          gridTemplateColumns: "68px 84px 0.75fr 2.25fr",
         }}
       >
-        {["EstimateID", "Est Type", "Voyage No", "Open position", "Operator"].map((h) => (
+        {["EstimateID", "Est Type", "Voyage No", "Open position"].map((h) => (
           <div
             key={h}
             className="border-b border-r px-1 py-[3px] font-medium last:border-r-0"
@@ -356,9 +350,6 @@ function VesselBlock({
                 .includes(input.toLowerCase())
             }
           />
-        </div>
-        <div>
-          <TxtCell value={estimateInfo.operator} />
         </div>
       </div>
     </div>
@@ -450,10 +441,10 @@ export default function VesselSection(props: VesselSectionProps = {}) {
   return (
     <section className="mb-2 w-full">
       <div className="flex w-full flex-row flex-nowrap items-start gap-2">
-        <div style={{ flex: "1 1 44%", minWidth: 0 }}>
+        <div style={{ flex: "1 1 calc(44% - 20px)", minWidth: 0 }}>
           <VesselBlock {...props} />
         </div>
-        <div style={{ flex: "0 0 168px", minWidth: 0 }}>
+        <div style={{ flex: "0 0 188px", minWidth: 0 }}>
           <SpeedBlock {...props} />
         </div>
         <div style={{ flex: "1 1 27%", minWidth: 0 }}>

@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS app_settings (
+    scope VARCHAR(50) PRIMARY KEY,
+    settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by BIGINT NULL REFERENCES users(id) ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+

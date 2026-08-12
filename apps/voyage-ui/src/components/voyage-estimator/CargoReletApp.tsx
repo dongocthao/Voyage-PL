@@ -1,5 +1,5 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Alert, Table, Button, Checkbox, Select } from "antd";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Alert, Table, Button, Checkbox, Modal, Select } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   SearchOutlined,
@@ -17,15 +17,17 @@ import { RowToolbar } from "./CargoTable";
 import LoadableQuantityApp from "./LoadableQuantityApp";
 import FreightSimulatorApp from "./FreightSimulatorApp";
 import AnalyzerApp from "./AnalyzerApp";
+import { CargoReletReportPreview } from "./CargoReletReportPreview";
+import { LinerTermsForm, type LinerTermsContextRow } from "@/components/liner-terms-form";
 import {
   buildCargoReletSnapshotPayload,
   mapCargoReletSnapshotToRows,
 } from "./cargoReletSnapshotMapper";
 import { SectionTitle, TxtCell, YCell } from "./cells";
 import { VE_COLORS } from "./theme";
-import KVPanels from "./KVPanels";
 import { useRowOps } from "./useRowOps";
 import { useResizableColumns } from "./useResizableColumns";
+import { buildPortRotationSummary, classifySeaStateByCargoFlow } from "./portRotationSummary";
 import {
   reletCargoData,
   reletPortData,
@@ -35,19 +37,81 @@ import {
 } from "./cargoReletData";
 import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
 import { loadCargoReletSnapshot, saveCargoReletSnapshot } from "@/lib/api/cargoReletSnapshots";
+import { fetchLookup, type LookupItem } from "@/lib/api/masterData";
 import { VoyageApiError } from "@/lib/api/voyageSnapshots";
 
 type CargoReletModal = "loadable" | "freight" | "analyzer";
-
-const portCell = (v: string) => (
-  <div className="flex items-center">
-    <TxtCell value={v} />
-    <InfoCircleOutlined style={{ color: VE_COLORS.titleBar, fontSize: 11 }} />
-  </div>
-);
+type ReletLinerTarget = { rowKey: string; side: "h" | "s" };
 
 type ReletCargoField = keyof ReletCargoRow;
 type ReletPortField = keyof ReletPortRow;
+
+function lookupLabel(item: LookupItem) {
+  if (item.name && item.country) return `${item.name} <${item.country}>`;
+  return item.name ?? item.code ?? String(item.id);
+}
+
+function formatUtcOffset(minutes: number | null | undefined) {
+  if (minutes === null || minutes === undefined || !Number.isFinite(minutes)) return "";
+  const sign = minutes < 0 ? "-" : "+";
+  const abs = Math.abs(minutes);
+  const hours = Math.floor(abs / 60);
+  const mins = abs % 60;
+  return `${sign}${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
+function portLabel(item: LookupItem) {
+  const offset = formatUtcOffset(item.utcOffsetMin);
+  return offset ? `${lookupLabel(item)} [${offset}]` : lookupLabel(item);
+}
+
+function filterLookup(input: string, option?: { label?: unknown }) {
+  return String(option?.label ?? "")
+    .toLowerCase()
+    .includes(input.toLowerCase());
+}
+
+const frtTypeOptions = [
+  { value: "F", label: "F" },
+  { value: "L", label: "L" },
+];
+
+const freightTypeSelect =
+  (update: (key: string, field: ReletCargoField, value: string) => void, field: ReletCargoField) =>
+  (value: string, row: ReletCargoRow) => (
+    <Select
+      size="small"
+      variant="borderless"
+      value={value || "F"}
+      onChange={(next) => update(row.key, field, next)}
+      options={frtTypeOptions}
+      style={{ width: "100%", fontSize: 11 }}
+    />
+  );
+
+const portLookupCell =
+  (
+    update: (key: string, field: ReletCargoField, value: string) => void,
+    field: ReletCargoField,
+    ports: LookupItem[],
+  ) =>
+  (value: string, row: ReletCargoRow) => (
+    <div className="flex items-center">
+      <Select
+        showSearch
+        allowClear
+        size="small"
+        variant="borderless"
+        value={value || undefined}
+        onChange={(next) => update(row.key, field, next ?? "")}
+        onSearch={(next) => update(row.key, field, next)}
+        options={ports.map((item) => ({ value: portLabel(item), label: portLabel(item) }))}
+        filterOption={filterLookup}
+        style={{ width: "100%", fontSize: 11 }}
+      />
+      <InfoCircleOutlined style={{ color: VE_COLORS.titleBar, fontSize: 11 }} />
+    </div>
+  );
 
 const cargoText =
   (
@@ -71,6 +135,8 @@ const cargoPercent =
 
 const buildCargoCols = (
   update: (key: string, field: ReletCargoField, value: string) => void,
+  ports: LookupItem[],
+  onOpenLinerTerms: (row: ReletCargoRow, side: "h" | "s") => void,
 ): ColumnsType<ReletCargoRow> => [
   { title: "#", dataIndex: "no", width: 36, align: "center" },
   { title: "Account", dataIndex: "account", width: "7%", render: cargoText(update, "account") },
@@ -80,8 +146,18 @@ const buildCargoCols = (
     width: "8%",
     render: cargoText(update, "cargoName"),
   },
-  { title: "Loading Port", dataIndex: "loadingPort", width: "12.5%", render: portCell },
-  { title: "Discharging Port", dataIndex: "dischargingPort", width: "12.5%", render: portCell },
+  {
+    title: "Loading Port",
+    dataIndex: "loadingPort",
+    width: "12.5%",
+    render: portLookupCell(update, "loadingPort", ports),
+  },
+  {
+    title: "Discharging Port",
+    dataIndex: "dischargingPort",
+    width: "12.5%",
+    render: portLookupCell(update, "dischargingPort", ports),
+  },
   {
     title: "Quantity",
     dataIndex: "quantity",
@@ -109,9 +185,9 @@ const buildCargoCols = (
       {
         title: "Frt Type",
         dataIndex: "hFrtType",
-        width: 32,
+        width: 46,
         align: "center",
-        render: cargoText(update, "hFrtType"),
+        render: freightTypeSelect(update, "hFrtType"),
       },
       {
         title: "Frt Lumpsum",
@@ -146,7 +222,20 @@ const buildCargoCols = (
         dataIndex: "hLiner",
         width: "6%",
         align: "right",
-        render: cargoText(update, "hLiner", true),
+        render: (value: string, row) => (
+          <div className="flex items-center gap-1">
+            <Button
+              type="text"
+              size="small"
+              className="h-[18px] w-[18px] p-0"
+              icon={<SearchOutlined className="text-[#73808a]" />}
+              onClick={() => onOpenLinerTerms(row, "h")}
+            />
+            <div className="min-w-0 flex-1">
+              <TxtCell value={value} right onChange={(next) => update(row.key, "hLiner", next)} />
+            </div>
+          </div>
+        ),
       },
     ],
   },
@@ -163,9 +252,9 @@ const buildCargoCols = (
       {
         title: "Frt Type",
         dataIndex: "sFrtType",
-        width: 32,
+        width: 46,
         align: "center",
-        render: cargoText(update, "sFrtType"),
+        render: freightTypeSelect(update, "sFrtType"),
       },
       {
         title: "Frt Lumpsum",
@@ -182,13 +271,6 @@ const buildCargoCols = (
         render: cargoPercent(update, "sComm"),
       },
       {
-        title: "Brkg",
-        dataIndex: "sBrkg",
-        width: 48,
-        align: "right",
-        render: cargoPercent(update, "sBrkg"),
-      },
-      {
         title: "Net Frt",
         dataIndex: "sNet",
         width: "6%",
@@ -200,7 +282,20 @@ const buildCargoCols = (
         dataIndex: "sLiner",
         width: "5.4%",
         align: "right",
-        render: cargoText(update, "sLiner", true),
+        render: (value: string, row) => (
+          <div className="flex items-center gap-1">
+            <Button
+              type="text"
+              size="small"
+              className="h-[18px] w-[18px] p-0"
+              icon={<SearchOutlined className="text-[#73808a]" />}
+              onClick={() => onOpenLinerTerms(row, "s")}
+            />
+            <div className="min-w-0 flex-1">
+              <TxtCell value={value} right onChange={(next) => update(row.key, "sLiner", next)} />
+            </div>
+          </div>
+        ),
       },
     ],
   },
@@ -214,6 +309,37 @@ const buildCargoCols = (
 ];
 
 const isMargin = (r: ReletPortRow) => r.key === "margin";
+
+const portRotationLookupCell =
+  (
+    update: (key: string, field: ReletPortField, value: string) => void,
+    ports: LookupItem[],
+  ) =>
+  (value: string, row: ReletPortRow) =>
+    isMargin(row) ? (
+      <span>{value}</span>
+    ) : (
+      <Select
+        showSearch
+        allowClear
+        size="small"
+        variant="borderless"
+        value={value || undefined}
+        onChange={(next) => {
+          const port = next ?? "";
+          update(row.key, "port", port);
+          update(row.key, "timezone", resolvePortTimezoneFromValue(port, ports));
+        }}
+        onSearch={(next) => {
+          update(row.key, "port", next);
+          update(row.key, "timezone", resolvePortTimezoneFromValue(next, ports));
+        }}
+        options={ports.map((item) => ({ value: portLabel(item), label: portLabel(item) }))}
+        filterOption={filterLookup}
+        style={{ width: "100%", fontSize: 11 }}
+      />
+    );
+
 const portText =
   (
     update: (key: string, field: ReletPortField, value: string) => void,
@@ -241,6 +367,7 @@ const portYellow =
 
 const buildPortCols = (
   update: (key: string, field: ReletPortField, value: string) => void,
+  ports: LookupItem[],
 ): ColumnsType<ReletPortRow> => [
   { title: "#", dataIndex: "no", width: 36, align: "center" },
   {
@@ -257,8 +384,8 @@ const buildPortCols = (
   {
     title: "Port Name / Coordinate",
     dataIndex: "port",
-    width: 150,
-    render: portText(update, "port"),
+    width: 230,
+    render: portRotationLookupCell(update, ports),
   },
   {
     title: "Time Zone",
@@ -384,13 +511,6 @@ const buildPortCols = (
     ],
   },
   {
-    title: "Port Charge",
-    dataIndex: "portCharge",
-    width: "6.4%",
-    align: "right",
-    render: portYellow(update, "portCharge"),
-  },
-  {
     title: "Arrival",
     dataIndex: "arrival",
     width: 140,
@@ -422,10 +542,18 @@ export default function CargoReletApp({
   registerWorkspaceToolbar?: RegisterWorkspaceToolbar;
 } = {}) {
   const [modal, setModal] = useState<CargoReletModal | null>(null);
+  const [linerTarget, setLinerTarget] = useState<ReletLinerTarget | null>(null);
   const [estimateId, setEstimateId] = useState<string>();
   const [estimateFileId, setEstimateFileId] = useState<string>();
   const [loadEstimateId, setLoadEstimateId] = useState("");
+  const [auditState, setAuditState] = useState({ updatedAt: "", updatedBy: "Admin" });
   const [sheetExists, setSheetExists] = useState(true);
+  const [otherResultAmount, setOtherResultAmount] = useState("0.0");
+  const [ports, setPorts] = useState<LookupItem[]>([]);
+  const [vessels, setVessels] = useState<LookupItem[]>([]);
+  const [vesselId, setVesselId] = useState<string>();
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportPrintToken, setReportPrintToken] = useState<number>();
   const [saveState, setSaveState] = useState<
     | { status: "idle" }
     | { status: "saving"; message: string }
@@ -447,6 +575,7 @@ export default function CargoReletApp({
     load: () => undefined,
     clear: () => undefined,
   });
+  const routeEstimateLoadRef = useRef<string | undefined>(undefined);
   const cargo = useRowOps<ReletCargoRow>(reletCargoData);
   const port = useRowOps<ReletPortRow>(reletPortData);
   const updateCargo = (key: string, field: ReletCargoField, value: string) => {
@@ -459,20 +588,61 @@ export default function CargoReletApp({
   };
   const calculatedCargoRows = useMemo(() => calculateCargoRows(cargo.rows), [cargo.rows]);
   const calculatedPortRows = useMemo(
-    () => calculatePortRows(port.rows, calculatedCargoRows),
-    [calculatedCargoRows, port.rows],
+    () => calculatePortRows(port.rows, calculatedCargoRows, ports),
+    [calculatedCargoRows, port.rows, ports],
   );
   const cargoTotals = useMemo(
     () => calculateCargoTotals(calculatedCargoRows),
     [calculatedCargoRows],
   );
   const portTotals = useMemo(() => calculatePortTotals(calculatedPortRows), [calculatedPortRows]);
-  const bottomPanels = useMemo(
-    () => buildCargoReletBottomPanels(cargoTotals, portTotals),
-    [cargoTotals, portTotals],
+  const portSummaryText = useMemo(
+    () =>
+      buildPortRotationSummary(calculatedPortRows, {
+        isSummaryRow: isMargin,
+        type: (row) => row.type,
+        sea: (row) => row.sea,
+        idle: (row) => row.idle,
+        working: (row) => row.working,
+        eca: (row) => row.eca,
+        wf: (row) => row.wf,
+        spd: (row) => row.spd,
+        departure: (row) => row.departure,
+        classifySeaState: (row, index, activeRows) =>
+          classifySeaStateByCargoFlow(activeRows, row, index, (item) => item.type),
+        classifyMarginSeaState: (_row, _activeRows, lastSeaState) => lastSeaState,
+      }),
+    [calculatedPortRows],
   );
-  const cargoColumns = useResizableColumns(buildCargoCols(updateCargo));
-  const portColumns = useResizableColumns(buildPortCols(updatePort));
+  const resultPanel = useMemo(
+    () => buildCargoReletResult(calculatedCargoRows, portTotals, otherResultAmount),
+    [calculatedCargoRows, portTotals, otherResultAmount],
+  );
+  const cargoColumns = useResizableColumns(
+    buildCargoCols(updateCargo, ports, (row, side) => setLinerTarget({ rowKey: row.key, side })),
+  );
+  const portColumns = useResizableColumns(buildPortCols(updatePort, ports));
+  const linerTargetRow = linerTarget
+    ? calculatedCargoRows.find((row) => row.key === linerTarget.rowKey) ?? null
+    : null;
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([fetchLookup("ports"), fetchLookup("vessels")])
+      .then(([nextPorts, nextVessels]) => {
+        if (!alive) return;
+        setPorts(nextPorts);
+        setVessels(nextVessels);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setPorts([]);
+        setVessels([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const save = async () => {
     if (!sheetExists) {
@@ -495,13 +665,19 @@ export default function CargoReletApp({
       const payload = buildCargoReletSnapshotPayload({
         estimateId,
         estimateFileId,
+        header: { vesselId },
         cargoRows: calculatedCargoRows,
         portRows: calculatedPortRows,
+        otherResultAmount,
       });
       const response = await saveCargoReletSnapshot(payload);
       setEstimateId(response.estimateId);
       setEstimateFileId(response.estimateFileId);
       setLoadEstimateId(response.estimateId);
+      setAuditState({
+        updatedAt: response.updatedAt ?? new Date().toISOString(),
+        updatedBy: response.updatedByName ?? "Admin",
+      });
       setSaveState({
         status: "saved",
         message: `Saved Cargo Relet estimate #${response.estimateId}.`,
@@ -510,6 +686,41 @@ export default function CargoReletApp({
       setSaveState({
         status: "error",
         message: error instanceof Error ? error.message : "Save failed.",
+        details:
+          error instanceof VoyageApiError
+            ? error.details
+                .map((detail) => detail.message)
+                .filter((message): message is string => Boolean(message))
+            : undefined,
+      });
+    }
+  };
+
+  const loadById = async (id: string) => {
+    setSaveState({ status: "loading", message: `Loading Cargo Relet estimate #${id}...` });
+    try {
+      const snapshot = await loadCargoReletSnapshot(id);
+      const rows = mapCargoReletSnapshotToRows(snapshot);
+      cargo.setRows(rows.cargoRows);
+      port.setRows(rows.portRows);
+      setOtherResultAmount(rows.otherResultAmount || "0.0");
+      setVesselId(snapshot.header.vesselId);
+      setEstimateId(snapshot.header.estimateId ?? id);
+      setEstimateFileId(snapshot.header.estimateFileId);
+      setLoadEstimateId(snapshot.header.estimateId ?? id);
+      setAuditState({
+        updatedAt: snapshot.header.updatedAt ?? "",
+        updatedBy: snapshot.header.updatedByName ?? "Admin",
+      });
+      setSheetExists(true);
+      setSaveState({
+        status: "loaded",
+        message: `Loaded Cargo Relet estimate #${snapshot.header.estimateId ?? id}.`,
+      });
+    } catch (error) {
+      setSaveState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Load failed.",
         details:
           error instanceof VoyageApiError
             ? error.details
@@ -532,33 +743,16 @@ export default function CargoReletApp({
       return;
     }
 
-    setSaveState({ status: "loading", message: `Loading Cargo Relet estimate #${id}...` });
-    try {
-      const snapshot = await loadCargoReletSnapshot(id);
-      const rows = mapCargoReletSnapshotToRows(snapshot);
-      cargo.setRows(rows.cargoRows);
-      port.setRows(rows.portRows);
-      setEstimateId(snapshot.header.estimateId ?? id);
-      setEstimateFileId(snapshot.header.estimateFileId);
-      setLoadEstimateId(snapshot.header.estimateId ?? id);
-      setSheetExists(true);
-      setSaveState({
-        status: "loaded",
-        message: `Loaded Cargo Relet estimate #${snapshot.header.estimateId ?? id}.`,
-      });
-    } catch (error) {
-      setSaveState({
-        status: "error",
-        message: error instanceof Error ? error.message : "Load failed.",
-        details:
-          error instanceof VoyageApiError
-            ? error.details
-                .map((detail) => detail.message)
-                .filter((message): message is string => Boolean(message))
-            : undefined,
-      });
-    }
+    await loadById(id);
   };
+
+  useEffect(() => {
+    const routeEstimateId = new URLSearchParams(window.location.search).get("estimateId")?.trim();
+    if (!routeEstimateId || routeEstimateLoadRef.current === routeEstimateId) return;
+
+    routeEstimateLoadRef.current = routeEstimateId;
+    void loadById(routeEstimateId);
+  }, []);
 
   const resetSheet = () => {
     cargo.setRows(reletCargoData);
@@ -566,6 +760,7 @@ export default function CargoReletApp({
     setEstimateId(undefined);
     setEstimateFileId(undefined);
     setLoadEstimateId("");
+    setAuditState({ updatedAt: "", updatedBy: "Admin" });
     setSheetExists(true);
     setSaveState({ status: "idle" });
   };
@@ -576,6 +771,7 @@ export default function CargoReletApp({
     setEstimateId(undefined);
     setEstimateFileId(undefined);
     setLoadEstimateId("");
+    setAuditState({ updatedAt: "", updatedBy: "Admin" });
     setSheetExists(false);
     setSaveState({ status: "idle" });
   };
@@ -608,7 +804,13 @@ export default function CargoReletApp({
   }, [estimateId, registerWorkspaceToolbar, sheetExists]);
 
   return (
-    <EstimatorShell title="Cargo Relet — Estimation W3" sheetKind="cargo relet">
+    <EstimatorShell
+      title="Cargo Relet Estimation W3"
+      sheetKind="cargo relet"
+      lastUpdatedAt={auditState.updatedAt}
+      lastUpdatedBy={auditState.updatedBy}
+    >
+      <div className="cargo-relet-estimation">
       {saveState.status !== "idle" && (
         <Alert
           className="mb-2"
@@ -622,7 +824,7 @@ export default function CargoReletApp({
           }
         />
       )}
-      <VesselSection />
+      <VesselSection vesselId={vesselId} vessels={vessels} onVesselIdChange={setVesselId} />
 
       <section className="mb-2">
         <div className="mb-1 flex items-center gap-3">
@@ -683,15 +885,12 @@ export default function CargoReletApp({
                   {cargoTotals.sComm}
                 </Table.Summary.Cell>
                 <Table.Summary.Cell index={18} align="right">
-                  {cargoTotals.sBrkg}
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={19} align="right">
                   {cargoTotals.sNet}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={20} align="right">
+                <Table.Summary.Cell index={19} align="right">
                   {cargoTotals.sLiner}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={21} />
+                <Table.Summary.Cell index={20} />
               </Table.Summary.Row>
             </Table.Summary>
           )}
@@ -705,7 +904,7 @@ export default function CargoReletApp({
       </section>
 
       <section className="mb-2">
-        <div className="mb-1 flex flex-wrap items-center gap-3">
+        <div className="ve-routing-checkboxes mb-1 flex flex-wrap items-center gap-3">
           <SectionTitle>Port Rotation</SectionTitle>
           <Checkbox defaultChecked className="text-[11px]">
             SUEZ
@@ -714,7 +913,9 @@ export default function CargoReletApp({
             PANAMA
           </Checkbox>
           <Checkbox className="text-[11px]">KIEL</Checkbox>
-          <span className="text-[11px] text-gray-600">{reletPortSummary}</span>
+          <span className="text-[11px] font-bold text-gray-700" style={{ marginLeft: 436 }}>
+            {portSummaryText || reletPortSummary}
+          </span>
         </div>
         <Table<ReletPortRow>
           size="small"
@@ -744,27 +945,25 @@ export default function CargoReletApp({
                 <Table.Summary.Cell index={8} align="right">
                   {portTotals.sea}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={9} align="right">
+                <Table.Summary.Cell index={9} />
+                <Table.Summary.Cell index={10} align="right">
                   {portTotals.hDem}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={10} align="right">
+                <Table.Summary.Cell index={11} align="right">
                   {portTotals.hDes}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={11} />
-                <Table.Summary.Cell index={12} align="right">
+                <Table.Summary.Cell index={12} />
+                <Table.Summary.Cell index={13} align="right">
                   {portTotals.sDem}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={13} align="right">
+                <Table.Summary.Cell index={14} align="right">
                   {portTotals.sDes}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={14} align="right">
+                <Table.Summary.Cell index={15} align="right">
                   {portTotals.idle}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={15} align="right">
-                  {portTotals.working}
-                </Table.Summary.Cell>
                 <Table.Summary.Cell index={16} align="right">
-                  {portTotals.portCharge}
+                  {portTotals.working}
                 </Table.Summary.Cell>
                 <Table.Summary.Cell index={17} align="center">
                   {portTotals.arrival}
@@ -784,12 +983,6 @@ export default function CargoReletApp({
         />
 
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          <Button size="small" icon={<LineChartOutlined />} onClick={() => setModal("analyzer")}>
-            Analyzer
-          </Button>
-          <Button size="small" icon={<FileTextOutlined />}>
-            Remark
-          </Button>
           <div className="ml-auto flex items-center gap-2">
             <Select
               size="small"
@@ -829,21 +1022,174 @@ export default function CargoReletApp({
         </div>
       </section>
 
-      <KVPanels
-        panels={[
-          { title: "Operation Expense", rows: bottomPanels.operationExpense },
-          {
-            title: "Result",
-            rows: bottomPanels.resultRows,
-            profitLabel: "Profit (USD)",
-            profit: bottomPanels.profitUsd,
-          },
-        ]}
+      <CargoReletResultPanel
+        result={resultPanel}
+        otherAmount={otherResultAmount}
+        onOtherAmountChange={setOtherResultAmount}
+        onAnalyzer={() => setModal("analyzer")}
+        onOpenReport={() => setReportOpen(true)}
+        onPrintReport={() => {
+          setReportOpen(true);
+          setReportPrintToken(Date.now());
+        }}
       />
       {modal === "loadable" && <LoadableQuantityApp onClose={() => setModal(null)} />}
       {modal === "freight" && <FreightSimulatorApp onClose={() => setModal(null)} />}
       {modal === "analyzer" && <AnalyzerApp onClose={() => setModal(null)} />}
+      <Modal
+        open={Boolean(linerTargetRow)}
+        footer={null}
+        closable={false}
+        centered
+        width={1120}
+        onCancel={() => setLinerTarget(null)}
+        destroyOnHidden
+      >
+        {linerTarget && linerTargetRow && (
+          <LinerTermsForm
+            rows={buildReletLinerContextRows(linerTargetRow)}
+            initialTotal={parseAmount(linerTarget.side === "h" ? linerTargetRow.hLiner : linerTargetRow.sLiner)}
+            onCancel={() => setLinerTarget(null)}
+            onApply={({ amount }) => {
+              updateCargo(
+                linerTargetRow.key,
+                linerTarget.side === "h" ? "hLiner" : "sLiner",
+                formatAmount(amount),
+              );
+              setLinerTarget(null);
+            }}
+          />
+        )}
+      </Modal>
+      <CargoReletReportPreview
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        autoPrintToken={reportPrintToken}
+        data={{
+          estimateId,
+          estimateName: "cargo-relet1",
+          status: "DRAFT",
+          auditState,
+          vesselId,
+          lookups: { vessels },
+          cargoRows: calculatedCargoRows,
+          portRows: calculatedPortRows,
+          result: resultPanel,
+          summaryText: portSummaryText,
+        }}
+      />
+      </div>
     </EstimatorShell>
+  );
+}
+
+function CargoReletResultPanel({
+  result,
+  otherAmount,
+  onOtherAmountChange,
+  onAnalyzer,
+  onOpenReport,
+  onPrintReport,
+}: {
+  result: CargoReletResult;
+  otherAmount: string;
+  onOtherAmountChange: (value: string) => void;
+  onAnalyzer: () => void;
+  onOpenReport?: () => void;
+  onPrintReport?: () => void;
+}) {
+  const columns: Array<keyof ResultLine> = [
+    "ttlFreight",
+    "addComm",
+    "brokerage",
+    "linerTerms",
+    "demurrage",
+    "despatch",
+    "total",
+  ];
+  const titles = [
+    "TTL Freight",
+    "Add Comm.",
+    "Brokerage",
+    "Liner Terms",
+    "Demurrage",
+    "Despatch",
+    "Total",
+  ];
+  const rows = [result.head, result.sub];
+
+  return (
+    <section className="mt-2">
+      <div className="mb-1 flex items-center">
+        <SectionTitle>Result</SectionTitle>
+        <div className="ml-auto flex gap-1">
+          <Button size="small" icon={<LineChartOutlined />} onClick={onAnalyzer}>
+            Analyzer
+          </Button>
+          <Button size="small" icon={<FileTextOutlined />} onClick={onOpenReport}>
+            Report
+          </Button>
+          <Button size="small" icon={<SearchOutlined />} onClick={onPrintReport}>
+            Print
+          </Button>
+          <Button size="small" icon={<FileTextOutlined />}>
+            Remark
+          </Button>
+        </div>
+      </div>
+      <div className="flex gap-6">
+        <table className="w-full border-collapse text-[11px]">
+          <thead>
+            <tr>
+              <th className="w-[110px] border border-[#d8e0e6] bg-[#f3f5f7]" />
+              {titles.map((title) => (
+                <th key={title} className="border border-[#d8e0e6] bg-[#f3f5f7] px-1 py-[3px] text-center font-medium">
+                  {title}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label}>
+                <td className="border border-[#d8e0e6] bg-[#f3f5f7] px-1 py-[3px] font-medium">
+                  {row.label}
+                </td>
+                {columns.map((key) => (
+                  <td key={key} className="border border-[#d8e0e6] bg-[#ffffd9] px-1 py-[3px] text-right">
+                    {key !== "ttlFreight" && key !== "total" ? (
+                      <SearchOutlined className="float-left mt-[2px] text-[#73808a]" />
+                    ) : null}
+                    {row[key]}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <table className="w-[315px] shrink-0 border-collapse self-end text-[11px]">
+          <tbody>
+            <tr>
+              <td className="w-[155px] border border-[#d8e0e6] bg-[#f3f5f7] px-1 py-[3px]">
+                Others
+              </td>
+              <td className="border border-[#d8e0e6] bg-[#ffffd9] px-1 py-[3px] text-right">
+                <SearchOutlined className="float-left mt-[2px] text-[#73808a]" />
+                <YCell value={otherAmount} onChange={onOtherAmountChange} />
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-[#d8e0e6] bg-[#f3f5f7] px-1 py-[3px] font-bold">
+                PROFIT
+              </td>
+              <td className="border border-[#d8e0e6] bg-[#ffffd9] px-1 py-[3px] text-right font-bold">
+                {result.profit}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -857,13 +1203,18 @@ function calculateCargoRows(rows: ReletCargoRow[]) {
 
 function netFreight(row: ReletCargoRow, side: "h" | "s") {
   const quantity = parseAmount(row.quantity);
+  const gross = grossFreight(row, side, quantity);
+  const comm = parseAmount(side === "h" ? row.hComm : row.sComm) / 100;
+  const brkg = side === "h" ? parseAmount(row.hBrkg) / 100 : 0;
+  return gross * (1 - comm - brkg);
+}
+
+function grossFreight(row: ReletCargoRow, side: "h" | "s", quantity = parseAmount(row.quantity)) {
   const frt = parseAmount(side === "h" ? row.hFrt : row.sFrt);
   const frtType = (side === "h" ? row.hFrtType : row.sFrtType).toUpperCase();
   const lumpsum = parseAmount(side === "h" ? row.hFrtLumpsum : row.sFrtLumpsum);
-  const comm = parseAmount(side === "h" ? row.hComm : row.sComm) / 100;
-  const brkg = parseAmount(side === "h" ? row.hBrkg : row.sBrkg) / 100;
   const gross = frtType === "L" ? lumpsum : quantity * frt;
-  return gross * (1 - comm - brkg);
+  return gross;
 }
 
 function calculateCargoTotals(rows: ReletCargoRow[]) {
@@ -897,12 +1248,12 @@ function weightedAverage(rows: ReletCargoRow[], field: keyof ReletCargoRow) {
   );
 }
 
-function calculatePortRows(rows: ReletPortRow[], cargoRows: ReletCargoRow[]) {
+function calculatePortRows(rows: ReletPortRow[], cargoRows: ReletCargoRow[], ports: LookupItem[]) {
   let previousDeparture: Date | undefined;
   let previousTimezone = "";
 
   return rows.map((row) => {
-    const timezone = resolvePortTimezone(row.port) || row.timezone || "";
+    const timezone = resolvePortTimezoneFromValue(row.port, ports) || row.timezone || "";
 
     if (isMargin(row)) {
       const arrival = addDays(previousDeparture, parseAmount(row.sea));
@@ -987,42 +1338,107 @@ function calculatePortTotals(rows: ReletPortRow[]) {
   };
 }
 
-function buildCargoReletBottomPanels(
-  cargoTotals: ReturnType<typeof calculateCargoTotals>,
+export type CargoReletResult = {
+  head: ResultLine;
+  sub: ResultLine;
+  others: number;
+  profit: string;
+};
+
+type ResultLine = {
+  label: string;
+  totalValue: number;
+  ttlFreight: string;
+  addComm: string;
+  brokerage: string;
+  linerTerms: string;
+  demurrage: string;
+  despatch: string;
+  total: string;
+};
+
+export function buildCargoReletResult(
+  cargoRows: ReletCargoRow[],
   portTotals: ReturnType<typeof calculatePortTotals>,
-) {
-  const headNet = parseAmount(cargoTotals.hNet);
-  const subNet = parseAmount(cargoTotals.sNet);
-  const portCharge = parseAmount(portTotals.portCharge);
-  const headDes = parseAmount(portTotals.hDes);
-  const subDes = parseAmount(portTotals.sDes);
-  const demDes = headDes - subDes;
-  const opExpense = portCharge + Math.max(0, demDes);
-  const days = Math.max(parseAmount(portTotals.sea) + parseAmount(portTotals.idle), 0);
-  const profit = subNet - headNet - opExpense;
+  otherAmount: string,
+): CargoReletResult {
+  const head = buildResultLine("Head CP", cargoRows, "h", portTotals);
+  const sub = buildResultLine("Sub CP", cargoRows, "s", portTotals);
+  const others = parseAmount(otherAmount);
+  return {
+    head,
+    sub,
+    others,
+    profit: formatAmount(head.totalValue - sub.totalValue + others),
+  };
+}
+
+function buildResultLine(
+  label: string,
+  rows: ReletCargoRow[],
+  side: "h" | "s",
+  portTotals: ReturnType<typeof calculatePortTotals>,
+): ResultLine {
+  const dataRows = rows.filter((row) => row.key !== "margin");
+  const ttlFreight = calculateTtlFreight(dataRows, side);
+  const addComm = calculateCommissionAmount(dataRows, side);
+  const brokerage = side === "h" ? calculateHeadBrokerageAmount(dataRows) : 0;
+  const linerTerms = calculateLinerTerms(dataRows, side);
+  const demurrage = parseAmount(side === "h" ? portTotals.hDem : portTotals.sDem);
+  const despatch = parseAmount(side === "h" ? portTotals.hDes : portTotals.sDes);
+  const total = ttlFreight - addComm - brokerage - linerTerms + demurrage - despatch;
 
   return {
-    operationExpense: [
-      ["Dem/Des", formatAmount(demDes), "Bunker Expense", "0.0"],
-      ["Add Comm.", "0.0", "C.E.V.", "0.0"],
-      ["Brokerage", "0.0", "ILOHC", "0.0"],
-      ["Freight Tax", "0.0", "Ballast Bonus", "0.0"],
-      ["Liner Terms", formatAmount(parseAmount(cargoTotals.hLiner)), "Routing Service", "0.0"],
-      ["Port Charge", portTotals.portCharge, "Others", "0.0"],
-    ] satisfies Array<[string, string, string, string]>,
-    resultRows: [
-      ["Head CP Freight", cargoTotals.hNet, "Sub CP Freight", cargoTotals.sNet],
-      ["Head CP Net", cargoTotals.hNet, "Sub CP Net", cargoTotals.sNet],
-      ["Op. Expense", formatAmount(opExpense), "Days", formatAmount(days, 2)],
-      [
-        "Net Voyage Days",
-        formatAmount(days, 2),
-        "TCE / Day",
-        days ? formatAmount(profit / days) : "0.0",
-      ],
-    ] satisfies Array<[string, string, string, string]>,
-    profitUsd: formatAmount(profit),
+    label,
+    totalValue: total,
+    ttlFreight: formatAmount(ttlFreight),
+    addComm: formatAmount(addComm),
+    brokerage: side === "h" ? formatAmount(brokerage) : "",
+    linerTerms: formatAmount(linerTerms),
+    demurrage: formatAmount(demurrage),
+    despatch: formatAmount(despatch),
+    total: formatAmount(total),
   };
+}
+
+function calculateTtlFreight(rows: ReletCargoRow[], side: "h" | "s") {
+  return sum(rows.map((row) => grossFreight(row, side)));
+}
+
+function calculateCommissionAmount(rows: ReletCargoRow[], side: "h" | "s") {
+  return sum(
+    rows.map((row) => grossFreight(row, side) * (parseAmount(side === "h" ? row.hComm : row.sComm) / 100)),
+  );
+}
+
+function calculateHeadBrokerageAmount(rows: ReletCargoRow[]) {
+  return sum(rows.map((row) => grossFreight(row, "h") * (parseAmount(row.hBrkg) / 100)));
+}
+
+function calculateLinerTerms(rows: ReletCargoRow[], side: "h" | "s") {
+  return sum(rows.map((row) => parseAmount(side === "h" ? row.hLiner : row.sLiner)));
+}
+
+function buildReletLinerContextRows(row: ReletCargoRow): LinerTermsContextRow[] {
+  const quantity = parseAmount(row.quantity);
+  return [
+    {
+      key: `${row.key}-loading`,
+      type: "Loading",
+      portName: row.loadingPort,
+      quantity,
+      account: row.account,
+      cargoName: row.cargoName,
+    },
+    {
+      key: `${row.key}-discharging`,
+      type: "Discharging",
+      portName: row.dischargingPort,
+      quantity,
+      account: row.account,
+      cargoName: row.cargoName,
+    },
+  ].filter((item) => item.portName || item.quantity || item.account || item.cargoName);
 }
 
 function validateCargoReletForm(cargoRows: ReletCargoRow[], portRows: ReletPortRow[]) {
@@ -1083,6 +1499,20 @@ function normalizePortName(value: string | undefined) {
 function resolvePortTimezone(portNameOrCoordinate: string) {
   const match = portNameOrCoordinate.match(/\[([+-]\d{2}:\d{2})\]/);
   return match?.[1] ?? "";
+}
+
+function resolvePortTimezoneFromValue(portNameOrCoordinate: string, ports: LookupItem[]) {
+  const explicit = resolvePortTimezone(portNameOrCoordinate);
+  if (explicit) return explicit;
+
+  const normalized = normalizePortName(portNameOrCoordinate);
+  const match = ports.find((item) => {
+    const labels = [lookupLabel(item), portLabel(item), item.name, item.code, item.unlocode]
+      .filter((value): value is string => Boolean(value))
+      .map(normalizePortName);
+    return labels.includes(normalized);
+  });
+  return formatUtcOffset(match?.utcOffsetMin);
 }
 
 function timezoneDeltaDays(fromTimezone: string, toTimezone: string) {

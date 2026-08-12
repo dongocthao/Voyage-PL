@@ -1,6 +1,6 @@
-import { Button, Select, Table } from "antd";
+import { Button, Modal, Select, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import {
   SearchOutlined,
   DeleteOutlined,
@@ -16,6 +16,7 @@ import { VE_COLORS } from "./theme";
 import { cargoData, type CargoRow } from "./mockData";
 import { useRowOps } from "./useRowOps";
 import { useResizableColumns } from "./useResizableColumns";
+import { LinerTermsForm, type LinerTermsContextRow } from "@/components/liner-terms-form";
 import type { LookupItem } from "@/lib/api/masterData";
 
 type CargoField = keyof CargoRow;
@@ -75,6 +76,7 @@ const buildColumns = (
     targetField?: CargoField,
   ) => void,
   lookups: CargoLookups,
+  onOpenLinerTerms: (row: CargoRow) => void,
 ): ColumnsType<CargoRow> => [
   { title: "#", dataIndex: "no", width: 42, align: "center" },
   {
@@ -280,7 +282,14 @@ const buildColumns = (
     key: "search",
     width: 44,
     align: "center",
-    render: () => <SearchOutlined style={{ color: "#888" }} />,
+    render: (_: unknown, row) => (
+      <Button
+        type="text"
+        size="small"
+        icon={<SearchOutlined style={{ color: "#888" }} />}
+        onClick={() => onOpenLinerTerms(row)}
+      />
+    ),
   },
 ];
 
@@ -301,6 +310,7 @@ export default function CargoTable({
 } = {}) {
   const cargo = useRowOps<CargoRow>(initialRows);
   const { setRows } = cargo;
+  const [linerRowKey, setLinerRowKey] = useState<string | null>(null);
   const update = (key: string, field: CargoField, value: string | boolean) => {
     cargo.setRows((rows) =>
       rows.map((row) => (row.key === key ? { ...row, [field]: value } : row)),
@@ -337,8 +347,12 @@ export default function CargoTable({
       }),
     );
   };
-  const columns = useResizableColumns(buildColumns(update, selectLookup, lookups));
+  const columns = useResizableColumns(
+    buildColumns(update, selectLookup, lookups, (row) => setLinerRowKey(row.key)),
+  );
   const totals = cargoTotals(cargo.rows);
+  const linerRow = linerRowKey ? cargo.rows.find((row) => row.key === linerRowKey) ?? null : null;
+  const linerContextRows = linerRow ? buildVoyageLinerContextRows(linerRow) : [];
 
   useEffect(() => {
     onRowsChange?.(cargo.rows);
@@ -412,8 +426,51 @@ export default function CargoTable({
         onInsertAbove={cargo.insertAbove}
         onInsertBelow={cargo.insertBelow}
       />
+      <Modal
+        open={Boolean(linerRow)}
+        footer={null}
+        closable={false}
+        centered
+        width={1120}
+        onCancel={() => setLinerRowKey(null)}
+        destroyOnHidden
+      >
+        {linerRow && (
+          <LinerTermsForm
+            rows={linerContextRows}
+            initialTotal={parseAmount(linerRow.linerTerm)}
+            onCancel={() => setLinerRowKey(null)}
+            onApply={({ amount }) => {
+              update(linerRow.key, "linerTerm", formatAmount(amount));
+              setLinerRowKey(null);
+            }}
+          />
+        )}
+      </Modal>
     </section>
   );
+}
+
+function buildVoyageLinerContextRows(row: CargoRow): LinerTermsContextRow[] {
+  const quantity = parseAmount(row.quantity);
+  return [
+    {
+      key: `${row.key}-loading`,
+      type: "Loading",
+      portName: row.loadingPort,
+      quantity,
+      account: row.account,
+      cargoName: row.cargoName,
+    },
+    {
+      key: `${row.key}-discharging`,
+      type: "Discharging",
+      portName: row.dischargingPort,
+      quantity,
+      account: row.account,
+      cargoName: row.cargoName,
+    },
+  ].filter((item) => item.portName || item.quantity || item.account || item.cargoName);
 }
 
 function cargoTotals(rows: CargoRow[]) {
