@@ -52,6 +52,11 @@ const LONGITUDE_INDICATORS = [
   { value: "W", label: "W" },
 ];
 
+const LABEL_WIDTH = 92;
+const CONTROL_GAP = 10;
+const FORM_SECTION_WIDTH = 560;
+const POSITION_GAP = 10;
+
 const textPattern = /^[A-Za-z0-9 _.,()&/+\-]*$/;
 const unlocodePattern = /^[A-Za-z0-9]{5}$/;
 
@@ -95,8 +100,12 @@ function Field({
   header?: boolean;
 }) {
   return (
-    <div className={`grid items-center gap-3 ${header ? "text-[11px] font-semibold text-[#334E63]" : ""}`} style={{ gridTemplateColumns: "92px minmax(0,1fr)" }}>
+    <div
+      className={`grid items-center ${header ? "text-[11px] font-semibold text-[#334E63]" : ""}`}
+      style={{ gridTemplateColumns: `${LABEL_WIDTH}px ${CONTROL_GAP}px minmax(0,1fr)` }}
+    >
       <span className={header ? "" : "text-[11px] text-[#334E63]"}>{label}</span>
+      <span />
       <div className="min-w-0">{children}</div>
     </div>
   );
@@ -399,12 +408,34 @@ export function NewPortForm({
       <ConfigProvider theme={veTheme}>
         <div
           className="bg-white text-[#172331]"
-          style={{ fontFamily: VE_FONT_FAMILY, fontSize: 11, width: embedded ? 860 : 900 }}
+          style={{ fontFamily: VE_FONT_FAMILY, fontSize: 11, width: embedded ? 580 : 580 }}
         >
           <style>
             {`
               .new-port-shell .ant-input,
-              .new-port-shell .ant-select-selector,
+              .new-port-shell .ant-select-selector {
+                border-radius: 0 !important;
+                font-size: 11px !important;
+                height: 26px !important;
+                min-height: 26px !important;
+              }
+
+              .new-port-shell .ant-input {
+                line-height: 24px !important;
+                padding-top: 0 !important;
+                padding-bottom: 0 !important;
+              }
+
+              .new-port-shell .ant-select-single .ant-select-selector {
+                padding-top: 0 !important;
+                padding-bottom: 0 !important;
+              }
+
+              .new-port-shell .ant-select-single .ant-select-selection-item,
+              .new-port-shell .ant-select-single .ant-select-selection-placeholder {
+                line-height: 24px !important;
+              }
+
               .new-port-shell .ant-btn {
                 border-radius: 0 !important;
                 font-size: 11px !important;
@@ -427,8 +458,8 @@ export function NewPortForm({
               </div>
             )}
 
-            <div className="space-y-4 px-4 pb-4 pt-4">
-              <div className="space-y-3">
+            <div className="space-y-[10px] px-[10px] pb-4 pt-4">
+              <div className="space-y-[10px]" style={{ width: FORM_SECTION_WIDTH }}>
                 <Field label="Port ID">
                   <Input value={port.id ?? ""} disabled size="small" />
                 </Field>
@@ -442,46 +473,64 @@ export function NewPortForm({
                   />
                 </Field>
 
-                <div className="grid grid-cols-2 gap-6">
-                  <Field label="Country">
-                    <Select
-                      size="small"
-                      showSearch
-                      value={port.countryName || undefined}
-                      status={errors.countryName ? "error" : ""}
-                      className={selectClassName}
-                      options={COUNTRY_OPTIONS}
-                      onChange={(value) => setField("countryName", value)}
-                    />
-                  </Field>
-                  <Field label="UN LOCODE">
-                    <Input
-                      size="small"
-                      value={port.unlocode ?? ""}
-                      status={errors.unlocode ? "error" : ""}
-                      onChange={(event) => setField("unlocode", event.target.value.toUpperCase())}
-                    />
-                  </Field>
+                <div
+                  className="grid items-center"
+                  style={{
+                    width: FORM_SECTION_WIDTH,
+                    gridTemplateColumns: `${LABEL_WIDTH}px ${CONTROL_GAP}px 200px 20px ${LABEL_WIDTH}px ${CONTROL_GAP}px minmax(0,1fr)`,
+                    columnGap: 0,
+                  }}
+                >
+                  <span className="text-[11px] text-[#334E63]">Country</span>
+                  <span />
+                  <Select
+                    size="small"
+                    showSearch
+                    value={port.countryName || undefined}
+                    status={errors.countryName ? "error" : ""}
+                    className={selectClassName}
+                    options={COUNTRY_OPTIONS}
+                    onChange={(value) => setField("countryName", value)}
+                  />
+                  <span />
+                  <span className="text-[11px] text-[#334E63]">UN LOCODE</span>
+                  <span />
+                  <Input
+                    size="small"
+                    value={port.unlocode ?? ""}
+                    status={errors.unlocode ? "error" : ""}
+                    onChange={(event) => setField("unlocode", event.target.value.toUpperCase())}
+                  />
+                </div>
 
-                  <Field label="Port Type">
-                    <Select
-                      size="small"
-                      value={port.portType || undefined}
-                      status={errors.portType ? "error" : ""}
-                      className={selectClassName}
-                      options={PORT_TYPE_OPTIONS}
-                      onChange={(value) => setField("portType", value)}
-                    />
-                  </Field>
-                  <Field label="Status">
-                    <Select
-                      size="small"
-                      value={port.status}
-                      className={selectClassName}
-                      options={STATUS_OPTIONS as unknown as { value: string; label: string }[]}
-                      onChange={(value) => setField("status", value as PortFormState["status"])}
-                    />
-                  </Field>
+                <div
+                  className="grid items-center"
+                  style={{
+                    width: FORM_SECTION_WIDTH,
+                    gridTemplateColumns: `${LABEL_WIDTH}px ${CONTROL_GAP}px 170px 16px ${LABEL_WIDTH}px ${CONTROL_GAP}px 170px`,
+                    columnGap: 0,
+                  }}
+                >
+                  <span className="text-[11px] text-[#334E63]">Port Type</span>
+                  <span />
+                  <Select
+                    size="small"
+                    value={port.portType || undefined}
+                    status={errors.portType ? "error" : ""}
+                    className={selectClassName}
+                    options={PORT_TYPE_OPTIONS}
+                    onChange={(value) => setField("portType", value)}
+                  />
+                  <span />
+                  <span className="text-[11px] text-[#334E63]">Status</span>
+                  <span />
+                  <Select
+                    size="small"
+                    value={port.status}
+                    className={selectClassName}
+                    options={STATUS_OPTIONS as unknown as { value: string; label: string }[]}
+                    onChange={(value) => setField("status", value as PortFormState["status"])}
+                  />
                 </div>
 
                 <Field label="Master Port">
@@ -494,10 +543,17 @@ export function NewPortForm({
                 </Field>
               </div>
 
-              <fieldset className="border border-[#D8E2EA] px-4 pb-4">
+              <fieldset className="box-border border border-[#D8E2EA] px-4 pb-4" style={{ width: FORM_SECTION_WIDTH }}>
                 <legend className="px-1 text-[11px] text-[#334E63]">Position</legend>
 
-                <div className="grid grid-cols-[92px_120px_120px_110px_1fr] items-center gap-x-3 gap-y-3">
+                <div
+                  className="grid items-center"
+                  style={{
+                    gridTemplateColumns: `${LABEL_WIDTH}px 80px 80px 50px 150px`,
+                    columnGap: POSITION_GAP,
+                    rowGap: 10,
+                  }}
+                >
                   <span />
                   <span className="text-[11px] font-semibold text-[#334E63]">Degrees</span>
                   <span className="text-[11px] font-semibold text-[#334E63]">Minutes</span>
@@ -561,28 +617,26 @@ export function NewPortForm({
                   />
 
                   <span className="text-[11px] text-[#334E63]">Time Zone</span>
-                  <div className="col-span-4 flex items-center gap-6">
-                    <Input
-                      size="small"
-                      className="w-[120px]"
-                      value={port.timeZoneCode ?? ""}
-                      status={errors.timeZoneCode ? "error" : ""}
-                      onChange={(event) => setField("timeZoneCode", event.target.value)}
+                  <Input
+                    size="small"
+                    value={port.timeZoneCode ?? ""}
+                    status={errors.timeZoneCode ? "error" : ""}
+                    onChange={(event) => setField("timeZoneCode", event.target.value)}
+                    style={{ gridColumn: "2 / span 2", width: 170 }}
+                  />
+                  <label className="col-start-4 col-span-2 flex items-center gap-2 whitespace-nowrap text-[11px] text-[#334E63]">
+                    <Checkbox
+                      checked={port.daylightSavingTime}
+                      onChange={(event) =>
+                        setField("daylightSavingTime", event.target.checked)
+                      }
                     />
-                    <label className="flex items-center gap-2 text-[11px] text-[#334E63]">
-                      <Checkbox
-                        checked={port.daylightSavingTime}
-                        onChange={(event) =>
-                          setField("daylightSavingTime", event.target.checked)
-                        }
-                      />
-                      <span>Daylight Saving Time</span>
-                    </label>
-                  </div>
+                    <span>Daylight Saving Time</span>
+                  </label>
                 </div>
               </fieldset>
 
-              <div className="space-y-2">
+              <div className="space-y-2" style={{ width: FORM_SECTION_WIDTH }}>
                 <div className="text-[12px] font-bold text-[#0E5D80]">Remark</div>
                 <Input.TextArea
                   rows={5}
@@ -592,7 +646,10 @@ export function NewPortForm({
                 />
               </div>
 
-              <div className="flex items-center justify-between gap-3 border-t border-[#D8E2EA] pt-3">
+              <div
+                className="flex items-center justify-between gap-3 border-t border-[#D8E2EA] pt-3"
+                style={{ width: FORM_SECTION_WIDTH }}
+              >
                 <span className="text-[11px] text-[#6d7a86]">{message}</span>
                 <div className="flex items-center gap-2">
                   <Button size="small" className="w-24" onClick={clearForm}>

@@ -393,7 +393,7 @@ function SettingsDialogLayer({
             <DialogShell
               title="Cargo"
               icon={<PackageOpen className="h-3.5 w-3.5" />}
-              width={1060}
+              width={828}
               onClose={onClose}
               bodyPadding={0}
               actions={[]}
@@ -405,7 +405,7 @@ function SettingsDialogLayer({
             <DialogShell
               title="Ports"
               icon={<Anchor className="h-3.5 w-3.5" />}
-              width={920}
+              width={610}
               onClose={onClose}
               bodyPadding={0}
               actions={[]}

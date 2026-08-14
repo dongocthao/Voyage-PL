@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Table, Button, Checkbox, Modal, Select, Tag } from "antd";
+import { Alert, Table, Button, Checkbox, Modal, Select, Tag, Input } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   CalendarOutlined,
@@ -9,6 +9,7 @@ import {
   PlusOutlined,
   SwapOutlined,
   FileTextOutlined,
+  PrinterOutlined,
   DashboardOutlined,
   ExperimentOutlined,
   CalculatorOutlined,
@@ -39,6 +40,7 @@ import {
   saveOperationSnapshot,
   type OperationSnapshotPayload,
 } from "@/lib/api/operationSnapshots";
+import { OperationReportPreview } from "./OperationReportPreview";
 import { loadVoyageSnapshot } from "@/lib/api/voyageSnapshots";
 import type { LoadedVoyageSnapshot } from "@/lib/api/voyageSnapshots";
 import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
@@ -82,6 +84,12 @@ type OperationReportSelection = { kind: OperationReportKind; portKey: string };
 type OperationLegReports = {
   arrival?: ArrivalReportData;
   departure?: DepartureReportData;
+};
+type OperationMiscItem = {
+  itemId: number;
+  itemDescription: string;
+  itemType?: string;
+  itemAmount: number;
 };
 
 /* ------------------------------ Vessel particular ------------------------------ */
@@ -150,9 +158,15 @@ const subCols: ColumnsType<OpFuelSubRow> = [
 
 function VesselPanel({
   status,
+  auditState,
 }: {
   status: string;
+  auditState: { updatedAt?: string; updatedBy?: string };
 }) {
+  const lastUpdateText = auditState.updatedAt
+    ? `${formatOperationAuditDateTime(auditState.updatedAt)}${auditState.updatedBy ? `, ${auditState.updatedBy}` : ""}`
+    : "";
+
   return (
     <section className="mb-2">
       <div className="mb-1 flex flex-wrap items-center gap-3">
@@ -163,6 +177,9 @@ function VesselPanel({
           <Tag color="cyan" className="!text-[11px]">
             To be Updated
           </Tag>
+          <span className="text-[11px]">
+            Last update : <b>{lastUpdateText}</b>
+          </span>
         </div>
       </div>
 
@@ -171,9 +188,9 @@ function VesselPanel({
         <div style={{ flex: "1 1 40%", minWidth: 0 }}>
           <div
             className="grid border text-[11px]"
-            style={{ ...B, gridTemplateColumns: "1fr 80px 80px 66px 60px 70px 70px" }}
+            style={{ ...B, gridTemplateColumns: "minmax(0, 1fr) 80px 60px 206px" }}
           >
-            {["MV", "DWT", "Draft (M)", "TPC", "Built", "Kind", "Type"].map((h) => (
+            {["MV", "DWT", "Built", "Kind"].map((h) => (
               <div
                 key={h}
                 className="border-b border-r px-1 py-[3px] text-center font-medium last:border-r-0"
@@ -189,19 +206,10 @@ function VesselPanel({
               <TxtCell value={opVessel.dwt} right />
             </div>
             <div className="border-r" style={B}>
-              <TxtCell value={opVessel.draft} right />
-            </div>
-            <div className="border-r" style={B}>
-              <TxtCell value={opVessel.tpc} right />
-            </div>
-            <div className="border-r" style={B}>
               <TxtCell value={opVessel.built} right />
             </div>
-            <div className="border-r" style={B}>
-              <TxtCell value={opVessel.kind} />
-            </div>
             <div>
-              <TxtCell value={opVessel.type} />
+              <TxtCell value={opVessel.kind} />
             </div>
           </div>
           <EstimateInfoGrid estType={opVessel.type} />
@@ -257,9 +265,6 @@ function VesselPanel({
             <div>
               <YCell value={opSpeed.laden} />
             </div>
-          </div>
-          <div className="border-x border-b py-[3px] text-center text-[11px]" style={B}>
-            <SearchOutlined style={{ fontSize: 11, color: VE_COLORS.headerText }} /> Fuel conditions
           </div>
         </div>
 
@@ -497,25 +502,231 @@ const buildBunkerCols = (
   },
 ];
 
-function KVGrid({ rows }: { rows: Array<[string, string, string, string]> }) {
+function KVGrid({
+  rows,
+  labelActions = {},
+  valueHandlers = {},
+  strongLabels = [],
+}: {
+  rows: Array<[string, string, string, string]>;
+  labelActions?: Record<string, React.ReactNode>;
+  valueHandlers?: Record<string, (value: string) => void>;
+  strongLabels?: string[];
+}) {
+  const strongSet = new Set(strongLabels.map((value) => value.toLowerCase().replace(/[^a-z]/g, "")));
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z]/g, "");
+  const renderLabel = (label: string) => {
+    const normalized = normalize(label);
+    const action = labelActions[normalized];
+    const strong = strongSet.has(normalized);
+    return (
+      <span className={`flex items-center justify-between gap-1 ${strong ? "font-bold" : ""}`}>
+        <span>{label}</span>
+        {action}
+      </span>
+    );
+  };
+  const renderValue = (label: string, value: string) => {
+    const normalized = normalize(label);
+    const onChange = valueHandlers[normalized];
+    const strong = strongSet.has(normalized);
+    if (onChange) {
+      return <TxtCell value={value} right onChange={onChange} />;
+    }
+    return <span className={`block px-1 py-[3px] text-right ${strong ? "font-bold" : ""}`}>{value}</span>;
+  };
+
   return (
     <div className="border text-[11px]" style={B}>
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-4 border-b last:border-b-0" style={B}>
           <div className="border-r px-1 py-[3px]" style={{ ...B, background: VE_COLORS.rowAlt }}>
-            {r[0]}
+            {renderLabel(r[0])}
           </div>
           <div className="border-r px-1 py-[3px] text-right" style={B}>
-            {r[1]}
+            {renderValue(r[0], r[1])}
           </div>
           <div className="border-r px-1 py-[3px]" style={{ ...B, background: VE_COLORS.rowAlt }}>
-            {r[2]}
+            {renderLabel(r[2])}
           </div>
-          <div className="px-1 py-[3px] text-right">{r[3]}</div>
+          <div className="px-1 py-[3px] text-right">{renderValue(r[2], r[3])}</div>
         </div>
       ))}
     </div>
   );
+}
+
+function OperationDetailModal({
+  title,
+  open,
+  rows,
+  onSave,
+  onClose,
+}: {
+  title: string;
+  open: boolean;
+  rows: OperationMiscItem[];
+  onSave: (rows: OperationMiscItem[]) => void;
+  onClose: () => void;
+}) {
+  const [draftRows, setDraftRows] = useState<OperationMiscItem[]>([]);
+  const paddedRows = draftRows.length ? draftRows : [emptyOperationMiscItem(1)];
+  const total = paddedRows.reduce((sum, row) => sum + row.itemAmount, 0);
+
+  useEffect(() => {
+    if (open) {
+      setDraftRows(rows.length ? rows : [emptyOperationMiscItem(1)]);
+    }
+  }, [open, rows]);
+
+  const update = (index: number, patch: Partial<OperationMiscItem>) => {
+    const next = [...paddedRows];
+    next[index] = { ...next[index], ...patch };
+    setDraftRows(next);
+  };
+
+  const remove = (index: number) => {
+    const next = paddedRows.filter((_, rowIndex) => rowIndex !== index);
+    setDraftRows(next.length ? next : [emptyOperationMiscItem(1)]);
+  };
+
+  return (
+    <Modal
+      title={title}
+      open={open}
+      onCancel={() => {
+        setDraftRows([]);
+        onClose();
+      }}
+      footer={[
+        <Button
+          key="save"
+          type="primary"
+          size="small"
+          onClick={() => {
+            onSave(sanitizeOperationMiscRows(paddedRows));
+            onClose();
+          }}
+        >
+          Save
+        </Button>,
+        <Button
+          key="cancel"
+          size="small"
+          onClick={() => {
+            setDraftRows([]);
+            onClose();
+          }}
+        >
+          Cancel
+        </Button>,
+      ]}
+      width={604}
+      styles={{ body: { height: 252, overflow: "hidden" } }}
+    >
+      <Table<OperationMiscItem>
+        size="small"
+        bordered
+        pagination={false}
+        tableLayout="fixed"
+        dataSource={paddedRows}
+        rowKey={(_, index) => String(index ?? 0)}
+        columns={[
+          {
+            title: "ID",
+            dataIndex: "itemId",
+            width: "15%",
+            render: (value: number, _row, index) => (
+              <TxtCell
+                value={String(value || "")}
+                right
+                onChange={(next) => update(index, { itemId: parseAmount(next) || index + 1 })}
+              />
+            ),
+          },
+          {
+            title: "Description",
+            dataIndex: "itemDescription",
+            width: "42%",
+            render: (value: string, _row, index) => (
+              <TxtCell
+                value={value}
+                onChange={(next) => update(index, { itemDescription: next })}
+              />
+            ),
+          },
+          {
+            title: "Type",
+            dataIndex: "itemType",
+            width: "22%",
+            render: (value: string, _row, index) => (
+              <TxtCell
+                value={value ?? ""}
+                onChange={(next) => update(index, { itemType: next })}
+              />
+            ),
+          },
+          {
+            title: "Amount",
+            dataIndex: "itemAmount",
+            width: "20%",
+            align: "right",
+            render: (value: number, _row, index) => (
+              <YCell
+                value={formatAmount(value || 0)}
+                onChange={(next) => update(index, { itemAmount: parseAmount(next) })}
+              />
+            ),
+          },
+          {
+            title: "",
+            key: "rowActions",
+            width: 56,
+            align: "center",
+            render: (_value, _row, index) => (
+              <span className="inline-flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  title="Add row"
+                  className="text-[#63b76b]"
+                  onClick={() => setDraftRows([...paddedRows, emptyOperationMiscItem(paddedRows.length + 1)])}
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  title="Delete row"
+                  className="text-[#4f9bd3]"
+                  onClick={() => remove(index)}
+                >
+                  -
+                </button>
+              </span>
+            ),
+          },
+        ]}
+        footer={() => (
+          <div className="grid grid-cols-[15%_42%_22%_20%_56px] text-[11px] font-bold">
+            <div />
+            <div />
+            <div className="px-1">Total</div>
+            <div className="px-1 text-right">{formatAmount(total)}</div>
+            <div />
+          </div>
+        )}
+      />
+    </Modal>
+  );
+}
+
+function emptyOperationMiscItem(itemId: number): OperationMiscItem {
+  return { itemId, itemDescription: "", itemType: "", itemAmount: 0 };
+}
+
+function sanitizeOperationMiscRows(rows: OperationMiscItem[]) {
+  return rows
+    .filter((row) => row.itemDescription.trim() || row.itemType?.trim() || row.itemAmount)
+    .map((row, index) => ({ ...row, itemId: row.itemId || index + 1 }));
 }
 
 /* ------------------------------ Screen ------------------------------ */
@@ -549,6 +760,14 @@ export default function OperationApp({
   const [linerRowKey, setLinerRowKey] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<OperationSaveState>({ status: "idle" });
   const [auditState, setAuditState] = useState({ updatedAt: "", updatedBy: "Admin" });
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportPrintToken, setReportPrintToken] = useState<number>();
+  const [remarkOpen, setRemarkOpen] = useState(false);
+  const [remarkText, setRemarkText] = useState("");
+  const [otherExpenseOpen, setOtherExpenseOpen] = useState(false);
+  const [miscRevenueOpen, setMiscRevenueOpen] = useState(false);
+  const [otherExpenseItems, setOtherExpenseItems] = useState<OperationMiscItem[]>([]);
+  const [miscRevenueItems, setMiscRevenueItems] = useState<OperationMiscItem[]>([]);
 
   const validateForSave = () => {
     const details = validateOperationForm({
@@ -871,7 +1090,6 @@ export default function OperationApp({
         { title: "ECA", dataIndex: "eca", width: "4%", align: "right", render: txt(true) },
       ],
     },
-    { title: "W.F", dataIndex: "wf", width: "4.4%", align: "right", render: txt(true) },
     {
       title: "Spd",
       dataIndex: "spd",
@@ -887,9 +1105,9 @@ export default function OperationApp({
       render: (v: string, r) => (isMargin(r) ? <YCell value={v} /> : <TxtCell value={v} right />),
     },
     {
-      title: "L / D Rate",
+      title: "Channel",
       dataIndex: "ldRate",
-      width: "6.6%",
+      width: "4.4%",
       align: "right",
       render: (v: string, r) => (isMargin(r) ? null : <YCell value={v} />),
     },
@@ -951,9 +1169,16 @@ export default function OperationApp({
   const cargoTotals = calculateOperationCargoTotals(cargo.rows);
   const portTotals = calculateOperationPortTotals(port.rows);
   const bunkerTotals = calculateOperationBunkerTotals(bunkerRows);
-  const operationExpenseRows = buildOperationExpenseRows(cargoTotals, portTotals, bunkerTotals);
-  const resultRows = buildOperationResultRows(cargoTotals, operationExpenseRows);
-  const profitUsd = calculateOperationProfit(cargoTotals, operationExpenseRows);
+  const otherExpenseAmount = sumOperationMiscItems(otherExpenseItems);
+  const miscRevenueAmount = sumOperationMiscItems(miscRevenueItems);
+  const operationExpenseRows = buildOperationExpenseRows(
+    cargoTotals,
+    portTotals,
+    bunkerTotals,
+    otherExpenseAmount,
+  );
+  const resultRows = buildOperationResultRows(cargoTotals, operationExpenseRows, miscRevenueAmount);
+  const profitUsd = calculateOperationProfit(cargoTotals, operationExpenseRows, miscRevenueAmount);
   const operationTabLabel = operationHeader.voyageNo.trim() || `Operation ${operationId ?? "Draft"}`;
   const operationTabs = [
     {
@@ -1004,7 +1229,7 @@ export default function OperationApp({
           )}
         </div>
       )}
-      <VesselPanel status={operationHeader.status ?? "ONGOING"} />
+      <VesselPanel status={operationHeader.status ?? "ONGOING"} auditState={auditState} />
 
       <section className="mb-2">
         <div className="mb-1 flex flex-wrap items-center gap-3">
@@ -1115,30 +1340,29 @@ export default function OperationApp({
                   {portTotals.eca}
                 </Table.Summary.Cell>
                 <Table.Summary.Cell index={5} />
-                <Table.Summary.Cell index={6} />
-                <Table.Summary.Cell index={7} align="right">
+                <Table.Summary.Cell index={6} align="right">
                   {portTotals.sea}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={8} />
-                <Table.Summary.Cell index={9} align="right">
+                <Table.Summary.Cell index={7} />
+                <Table.Summary.Cell index={8} align="right">
                   {portTotals.idle}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={10} align="right">
+                <Table.Summary.Cell index={9} align="right">
                   {portTotals.working}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={11} align="right">
+                <Table.Summary.Cell index={10} align="right">
                   {portTotals.dem}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={12} align="right">
+                <Table.Summary.Cell index={11} align="right">
                   {portTotals.des}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={13} align="right">
+                <Table.Summary.Cell index={12} align="right">
                   {portTotals.portCharge}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={14} align="right">
+                <Table.Summary.Cell index={13} align="right">
                   {portTotals.arrival}
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={15} align="right">
+                <Table.Summary.Cell index={14} align="right">
                   {portTotals.departure}
                 </Table.Summary.Cell>
               </Table.Summary.Row>
@@ -1188,12 +1412,24 @@ export default function OperationApp({
         </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_0.92fr_1.08fr]">
         <section>
-          <div className="mb-1">
+          <div className="mb-1 flex items-center gap-2">
             <SectionTitle>Operation Expense</SectionTitle>
+            <Button size="small" icon={<FileTextOutlined />} className="ml-auto" onClick={() => setRemarkOpen(true)}>
+              Remark
+            </Button>
           </div>
-          <KVGrid rows={operationExpenseRows} />
+          <KVGrid
+            rows={operationExpenseRows}
+            labelActions={{
+              others: (
+                <button type="button" className="text-[#73808a]" onClick={() => setOtherExpenseOpen(true)}>
+                  <SearchOutlined />
+                </button>
+              ),
+            }}
+          />
         </section>
 
         <section>
@@ -1225,24 +1461,31 @@ export default function OperationApp({
             <Button size="small" icon={<SwapOutlined />}>
               Comparison
             </Button>
-            <Button size="small" icon={<FileTextOutlined />}>
-              Remark
+            <Button size="small" icon={<FileTextOutlined />} onClick={() => setReportOpen(true)}>
+              Report
+            </Button>
+            <Button
+              size="small"
+              icon={<PrinterOutlined />}
+              onClick={() => {
+                setReportOpen(true);
+                setReportPrintToken(Date.now());
+              }}
+            >
+              Print
             </Button>
           </div>
-          <KVGrid rows={resultRows} />
-          <div
-            className="mt-[2px] grid grid-cols-4 border text-[12px] font-bold"
-            style={{ ...B, background: VE_COLORS.rowAlt }}
-          >
-            <div className="border-r px-1 py-[3px]" style={B} />
-            <div className="border-r px-1 py-[3px]" style={B} />
-            <div className="border-r px-1 py-[3px]" style={B}>
-              PROFIT
-            </div>
-            <div className="px-1 py-[3px] text-right" style={{ color: VE_COLORS.sectionTitle }}>
-              {profitUsd}
-            </div>
-          </div>
+          <KVGrid
+            rows={resultRows}
+            labelActions={{
+              miscrevenue: (
+                <button type="button" className="text-[#73808a]" onClick={() => setMiscRevenueOpen(true)}>
+                  <SearchOutlined />
+                </button>
+              ),
+            }}
+            strongLabels={["Profit /(Loss)"]}
+          />
         </section>
       </div>
 
@@ -1293,6 +1536,54 @@ export default function OperationApp({
           />
         )}
       </Modal>
+      <Modal
+        title="Remark"
+        open={remarkOpen}
+        onCancel={() => setRemarkOpen(false)}
+        onOk={() => setRemarkOpen(false)}
+      >
+        <Input.TextArea
+          value={remarkText}
+          onChange={(event) => setRemarkText(event.target.value)}
+          rows={8}
+        />
+      </Modal>
+      <OperationDetailModal
+        title="Other Expense"
+        open={otherExpenseOpen}
+        rows={otherExpenseItems}
+        onSave={setOtherExpenseItems}
+        onClose={() => setOtherExpenseOpen(false)}
+      />
+      <OperationDetailModal
+        title="Misc Revenue"
+        open={miscRevenueOpen}
+        rows={miscRevenueItems}
+        onSave={setMiscRevenueItems}
+        onClose={() => setMiscRevenueOpen(false)}
+      />
+      <OperationReportPreview
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        autoPrintToken={reportPrintToken}
+        data={{
+          operationId,
+          estimateId: operationHeader.estimateId,
+          vesselName: operationHeader.vesselName,
+          voyageNo: operationHeader.voyageNo,
+          status: operationHeader.status,
+          auditState,
+          cargoRows: cargo.rows,
+          portRows: port.rows,
+          bunkerRows,
+          operationExpenseRows,
+          resultRows,
+          miscRevenueAmount: formatAmount(miscRevenueAmount),
+          profit: profitUsd,
+          remark: remarkText,
+          summaryText: opPortSummary,
+        }}
+      />
     </div>
   );
 
@@ -1577,6 +1868,10 @@ function buildReportFuels(rob: string[]) {
   }));
 }
 
+function sumOperationMiscItems(rows: OperationMiscItem[]) {
+  return rows.reduce((sum, row) => sum + row.itemAmount, 0);
+}
+
 function formatPercentValue(value?: number) {
   return value == null ? "" : `${value} %`;
 }
@@ -1584,6 +1879,14 @@ function formatPercentValue(value?: number) {
 function formatOperationDateTime(value?: string) {
   if (!value) return "";
   return value.replace("T", " ").slice(0, 16);
+}
+
+function formatOperationAuditDateTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (num: number) => String(num).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function formatOperationPortType(value: LoadedVoyageSnapshot["portLegs"][number]["legType"]) {
@@ -1709,12 +2012,13 @@ function buildOperationExpenseRows(
   cargoTotals: OperationCargoTotals,
   portTotals: OperationPortTotals,
   bunkerTotals: OperationBunkerTotals,
+  otherExpenseAmount: number,
 ) {
   const cev = parseKvAmount(opExpense, "C.E.V.");
   const ilohc = parseKvAmount(opExpense, "ILOHC");
   const ballastBonus = parseKvAmount(opExpense, "Ballast Bonus");
   const routingService = parseKvAmount(opExpense, "Routing Service");
-  const others = parseKvAmount(opExpense, "Others");
+  const others = otherExpenseAmount;
 
   return [
     ["Dem/Des", formatAmount(portTotals.demDesValue), "Bunker Expense", bunkerTotals.expense],
@@ -1729,6 +2033,7 @@ function buildOperationExpenseRows(
 function buildOperationResultRows(
   cargoTotals: OperationCargoTotals,
   operationExpenseRows: Array<[string, string, string, string]>,
+  miscRevenueAmount: number,
 ) {
   const totalHire = parseKvAmount(opResultRows, "Total Hire");
   const hireDay = parseKvAmount(opResultRows, "Hire / Day");
@@ -1737,7 +2042,7 @@ function buildOperationResultRows(
   const offHire = parseKvAmount(opResultRows, "Off Hire");
   const cBase = parseKvAmount(opResultRows, "C/Base");
   const opExpense = sumKvRows(operationExpenseRows);
-  const opProfit = cargoTotals.revenueValue - opExpense;
+  const opProfit = cargoTotals.revenueValue + miscRevenueAmount - opExpense;
   const totalExpense = opExpense + totalHire;
 
   return [
@@ -1746,16 +2051,18 @@ function buildOperationResultRows(
     ["Net Hire", formatAmount(netHire), "Op. Profit", formatAmount(opProfit)],
     ["Off Hire", formatAmount(offHire), "Total Hire", formatAmount(totalHire)],
     ["C/Base", formatAmount(cBase), "Total Expense", formatAmount(totalExpense)],
+    ["Misc Revenue", formatAmount(miscRevenueAmount), "Profit /(Loss)", formatAmount(opProfit - totalHire)],
   ] satisfies Array<[string, string, string, string]>;
 }
 
 function calculateOperationProfit(
   cargoTotals: OperationCargoTotals,
   operationExpenseRows: Array<[string, string, string, string]>,
+  miscRevenueAmount: number,
 ) {
   const opExpense = sumKvRows(operationExpenseRows);
   const totalHire = parseKvAmount(opResultRows, "Total Hire");
-  return formatAmount(cargoTotals.revenueValue - opExpense - totalHire);
+  return formatAmount(cargoTotals.revenueValue + miscRevenueAmount - opExpense - totalHire);
 }
 
 function validateOperationForm({

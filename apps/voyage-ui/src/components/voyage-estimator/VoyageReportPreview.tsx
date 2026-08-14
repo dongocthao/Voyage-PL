@@ -1047,5 +1047,20 @@ export const REPORT_STYLES = `
       margin: 0;
       padding: 0;
     }
+
+    .report-content {
+      padding-bottom: 16px;
+    }
+
+    .report-footer {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      margin-top: 0;
+      padding: 4px 8mm 0;
+      background: white;
+      box-sizing: border-box;
+    }
   }
 `;

@@ -1075,6 +1075,7 @@ export default function CargoReletApp({
           cargoRows: calculatedCargoRows,
           portRows: calculatedPortRows,
           result: resultPanel,
+          otherAmount: otherResultAmount,
           summaryText: portSummaryText,
         }}
       />
