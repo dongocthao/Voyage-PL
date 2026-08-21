@@ -32,7 +32,7 @@ export class UpsertCargoMasterDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(50)
+  @MaxLength(150)
   imsbcCode?: string;
 
   @IsOptional()

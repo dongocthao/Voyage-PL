@@ -6,7 +6,10 @@ import type { ColumnsType } from "antd/es/table";
 import { StyleProvider } from "@ant-design/cssinjs";
 import { SearchOutlined } from "@ant-design/icons";
 import { fetchOperationList, type OperationListRow } from "@/lib/api/operationList";
-import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
+import {
+  createWorkspaceToolbarRegistration,
+  type RegisterWorkspaceToolbar,
+} from "@/components/workspace/workspaceToolbar";
 import { useResizableColumns } from "@/components/voyage-estimator/useResizableColumns";
 import { veTheme, VE_FONT_FAMILY } from "@/components/voyage-estimator/theme";
 
@@ -181,14 +184,16 @@ export function OperationListForm({
   }, [onOpenOperation, selectedRow]);
 
   useEffect(() => {
-    registerWorkspaceToolbar?.({
-      hasSheet: true,
-      hasEstimate: Boolean(selectedRow),
-      execute: {
-        open: handleOpen,
-        undo: () => setFilters({}),
-      },
-    });
+    registerWorkspaceToolbar?.(
+      createWorkspaceToolbarRegistration({
+        hasSheet: true,
+        hasEstimate: Boolean(selectedRow),
+        actions: {
+          onOpen: handleOpen,
+          onUndo: () => setFilters({}),
+        },
+      }),
+    );
   }, [handleOpen, registerWorkspaceToolbar, selectedRow]);
 
   const setFilter = (key: keyof Filters) => (value: string | undefined) =>

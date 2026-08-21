@@ -76,7 +76,29 @@ export default function LoadableQuantityApp({ onClose }: { onClose?: () => void 
       onClose={onClose}
       actions={[{ label: "OK", primary: true }, { label: "Cancel" }]}
     >
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <style>
+        {`
+          .loadable-quantity-dialog .ant-radio-wrapper,
+          .loadable-quantity-dialog .ant-checkbox-wrapper {
+            color: ${VE_COLORS.headerText};
+          }
+          .loadable-quantity-dialog .ant-radio-checked .ant-radio-inner,
+          .loadable-quantity-dialog .ant-checkbox-checked .ant-checkbox-inner {
+            border-color: ${VE_COLORS.headerText} !important;
+            background-color: ${VE_COLORS.headerText} !important;
+          }
+          .loadable-quantity-dialog .ant-radio-inner::after {
+            background-color: #fff !important;
+          }
+          .loadable-quantity-dialog .ant-radio-wrapper:hover .ant-radio-inner,
+          .loadable-quantity-dialog .ant-radio-input:focus + .ant-radio-inner,
+          .loadable-quantity-dialog .ant-checkbox-wrapper:hover .ant-checkbox-inner,
+          .loadable-quantity-dialog .ant-checkbox-input:focus + .ant-checkbox-inner {
+            border-color: ${VE_COLORS.headerText} !important;
+          }
+        `}
+      </style>
+      <div className="loadable-quantity-dialog grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Left */}
         <div>
           <Radio checked>

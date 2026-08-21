@@ -47,6 +47,16 @@ export class MasterDataController {
     return this.masterData.ports(query);
   }
 
+  @Get('countries')
+  countries(@Query('q') query?: string) {
+    return this.masterData.countries(query);
+  }
+
+  @Get('port-types')
+  portTypes(@Query('q') query?: string) {
+    return this.masterData.portTypes(query);
+  }
+
   @Get('ports/:id')
   port(@Param('id') id: string) {
     return this.masterData.port(id);
@@ -92,9 +102,22 @@ export class MasterDataController {
     return this.masterData.laytimeTerms(query);
   }
 
+  @Get('fuel-categories')
+  fuelCategories(@Query('q') query?: string) {
+    return this.masterData.fuelCategories(query);
+  }
+
   @Get('fuel-types')
-  fuelTypes(@Query('q') query?: string) {
-    return this.masterData.fuelTypes(query);
+  fuelTypes(
+    @Query('q') query?: string,
+    @Query('categoryId') categoryId?: string,
+  ) {
+    return this.masterData.fuelTypes({ query, categoryId });
+  }
+
+  @Get('fuel-types/eca-compliant')
+  fuelTypesEcaCompliant(@Query('q') query?: string) {
+    return this.masterData.fuelTypes({ query, ecaOnly: true });
   }
 
   @Get('vessel-kinds')
@@ -103,8 +126,11 @@ export class MasterDataController {
   }
 
   @Get('vessel-types')
-  vesselTypes(@Query('q') query?: string) {
-    return this.masterData.vesselTypes(query);
+  vesselTypes(
+    @Query('q') query?: string,
+    @Query('kindId') kindId?: string,
+  ) {
+    return this.masterData.vesselTypes({ query, kindId });
   }
 
   @Get('expense-categories')

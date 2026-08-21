@@ -15,6 +15,7 @@ import { useRowOps } from "./useRowOps";
 import { useResizableColumns } from "./useResizableColumns";
 import type { LookupItem } from "@/lib/api/masterData";
 import { buildPortRotationSummary, classifySeaStateByCargoFlow } from "./portRotationSummary";
+import { PortLookupSelect } from "./PortLookupSelect";
 
 const isMargin = (r: PortRow) => r.key === "margin";
 type PortField = keyof PortRow;
@@ -46,25 +47,12 @@ function PortLookupCell({
   onSelect: (value: string) => void;
 }) {
   return (
-    <Select
-      showSearch
-      allowClear
-      size="small"
-      variant="borderless"
-      value={value || undefined}
-      onSearch={onChange}
-      onChange={(next) => {
-        const value = next ?? "";
-        onChange(value);
-        onSelect(value);
-      }}
-      style={{ width: "100%", fontSize: 11 }}
-      options={options.map((item) => ({ value: lookupLabel(item), label: lookupLabel(item) }))}
-      filterOption={(input, option) =>
-        String(option?.label ?? "")
-          .toLowerCase()
-          .includes(input.toLowerCase())
-      }
+    <PortLookupSelect
+      value={value}
+      initialOptions={options}
+      onInputChange={onChange}
+      onResolvedChange={(next) => onSelect(next)}
+      formatOption={lookupLabel}
     />
   );
 }

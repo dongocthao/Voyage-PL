@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Box, Save, Trash2, X } from "lucide-react";
 import { Button, ConfigProvider, Input, Select } from "antd";
 import { StyleProvider } from "@ant-design/cssinjs";
 import { VE_FONT_FAMILY, veTheme } from "@/components/voyage-estimator/theme";
-import { saveCargo, type CargoMaster } from "@/lib/api/cargoes";
+import { getCargo, listCargoes, saveCargo, type CargoMaster } from "@/lib/api/cargoes";
 
 type FormErrors = Record<string, string>;
 
@@ -33,7 +33,7 @@ const emptyCargo: CargoMaster = {
   defaultUnit: "MT",
   stowageFactor: null,
   stowageFactorFt3: null,
-  stowageFactorUnit: "Ft3/MT",
+  stowageFactorUnit: "CBM/MT",
   unNumber: "",
   hazardClass: "",
   productCode: "",
@@ -55,15 +55,18 @@ function RightLabel({ children }: { children: React.ReactNode }) {
 
 export function NewCargoForm({
   embedded = false,
+  initialCargoId,
   onClose,
 }: {
   embedded?: boolean;
+  initialCargoId?: string;
   onClose?: () => void;
 }) {
   const [cargo, setCargo] = useState<CargoMaster>(emptyCargo);
   const [errors, setErrors] = useState<FormErrors>({});
   const [message, setMessage] = useState("Ready");
   const [saving, setSaving] = useState(false);
+  const [initializing, setInitializing] = useState(true);
 
   const selectClassName = useMemo(
     () => (embedded ? "new-cargo-embedded-select" : "new-cargo-select"),
@@ -73,6 +76,57 @@ export function NewCargoForm({
   const update = <K extends keyof CargoMaster>(key: K, value: CargoMaster[K]) => {
     setCargo((current) => ({ ...current, [key]: value }));
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadInitialCargo = async () => {
+      setInitializing(true);
+      try {
+        if (initialCargoId) {
+          const loaded = await getCargo(initialCargoId);
+          if (!cancelled) {
+            setCargo({ ...emptyCargo, ...loaded });
+            setErrors({});
+            setMessage(`Loaded ${loaded.cargoName}`);
+          }
+          return;
+        }
+
+        const lookupRows = await listCargoes();
+        const firstActive = lookupRows.find((row) => row.isActive !== false) ?? lookupRows[0];
+        if (!firstActive?.id) {
+          if (!cancelled) {
+            setCargo(emptyCargo);
+            setMessage("No cargo master data found.");
+          }
+          return;
+        }
+
+        const loaded = await getCargo(firstActive.id);
+        if (!cancelled) {
+          setCargo({ ...emptyCargo, ...loaded });
+          setErrors({});
+          setMessage(`Loaded ${loaded.cargoName}`);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCargo(emptyCargo);
+          setMessage(error instanceof Error ? error.message : "Failed to load cargo.");
+        }
+      } finally {
+        if (!cancelled) {
+          setInitializing(false);
+        }
+      }
+    };
+
+    void loadInitialCargo();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialCargoId]);
 
   const clearForm = () => {
     setCargo(emptyCargo);
@@ -337,7 +391,7 @@ export function NewCargoForm({
                     className="w-24"
                     icon={<Trash2 className="h-3.5 w-3.5" />}
                     onClick={() => void handleDelete()}
-                    disabled={saving}
+                    disabled={saving || initializing}
                   >
                     Delete
                   </Button>
@@ -348,6 +402,7 @@ export function NewCargoForm({
                     icon={<Save className="h-3.5 w-3.5" />}
                     onClick={() => void handleSave()}
                     loading={saving}
+                    disabled={initializing}
                   >
                     Save
                   </Button>
@@ -402,7 +457,7 @@ function mapCargoPayload(cargo: CargoMaster): CargoMaster {
     defaultUnit: cargo.defaultUnit ?? "MT",
     stowageFactor: cargo.stowageFactor ?? null,
     stowageFactorFt3: cargo.stowageFactorFt3 ?? null,
-    stowageFactorUnit: "Ft3/MT",
+    stowageFactorUnit: "CBM/MT",
     unNumber: cargo.unNumber ?? "",
     hazardClass: cargo.hazardClass ?? "",
     productCode: null,
@@ -423,7 +478,7 @@ function validateCargoForm(cargo: CargoMaster): FormErrors {
   optionalText(errors, "cargoClass", cargo.cargoClass, "Cargo Class", 80, textPattern);
   optionalText(errors, "imoName", cargo.imoName, "IMO Name", 150, textPattern);
   optionalText(errors, "ibcCode", cargo.ibcCode, "IBC Code", 50, codePattern);
-  optionalText(errors, "imsbcCode", cargo.imsbcCode, "IMSBC Code", 50, codePattern);
+  optionalText(errors, "imsbcCode", cargo.imsbcCode, "IMSBC Code", 150, textPattern);
   optionalText(errors, "defaultUnit", cargo.defaultUnit, "Default CP Unit", 20, codePattern);
   optionalPositiveNumber(errors, "stowageFactor", cargo.stowageFactor, "Stow Factor");
   optionalPositiveNumber(errors, "stowageFactorFt3", cargo.stowageFactorFt3, "Stow Factor Ft3");

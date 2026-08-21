@@ -7,7 +7,10 @@ import type { ColumnsType } from "antd/es/table";
 import { StyleProvider } from "@ant-design/cssinjs";
 import { SearchOutlined } from "@ant-design/icons";
 import { fetchEstimateList, type EstimateListRow } from "@/lib/api/estimateList";
-import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
+import {
+  createWorkspaceToolbarRegistration,
+  type RegisterWorkspaceToolbar,
+} from "@/components/workspace/workspaceToolbar";
 import { useResizableColumns } from "@/components/voyage-estimator/useResizableColumns";
 import { veTheme, VE_FONT_FAMILY } from "@/components/voyage-estimator/theme";
 
@@ -114,8 +117,10 @@ function uniqueValues(rows: EstimateRow[], field: keyof EstimateRow) {
 
 export function EstimateListForm({
   registerWorkspaceToolbar,
+  onOpenEstimate,
 }: {
   registerWorkspaceToolbar?: RegisterWorkspaceToolbar;
+  onOpenEstimate?: (estimate: { id: string; type: EstimateType }) => void;
 } = {}) {
   const navigate = useNavigate();
   const [rows, setRows] = useState<EstimateRow[]>([]);
@@ -177,6 +182,10 @@ export function EstimateListForm({
 
   const handleOpen = useCallback(() => {
     if (!selectedRow) return;
+    if (onOpenEstimate) {
+      onOpenEstimate({ id: selectedRow.id, type: selectedRow.type });
+      return;
+    }
     const target =
       selectedRow.type === "Time Charter"
         ? "/time-charter"
@@ -184,17 +193,19 @@ export function EstimateListForm({
           ? "/cargo-relet"
           : "/voyage-estimator";
     navigate({ to: target, search: { estimateId: selectedRow.id } });
-  }, [navigate, selectedRow]);
+  }, [navigate, onOpenEstimate, selectedRow]);
 
   useEffect(() => {
-    registerWorkspaceToolbar?.({
-      hasSheet: true,
-      hasEstimate: Boolean(selectedRow),
-      execute: {
-        open: handleOpen,
-        undo: () => setFilters({}),
-      },
-    });
+    registerWorkspaceToolbar?.(
+      createWorkspaceToolbarRegistration({
+        hasSheet: true,
+        hasEstimate: Boolean(selectedRow),
+        actions: {
+          onOpen: handleOpen,
+          onUndo: () => setFilters({}),
+        },
+      }),
+    );
   }, [handleOpen, registerWorkspaceToolbar, selectedRow]);
 
   const setFilter = (key: keyof Filters) => (value: string | undefined) =>

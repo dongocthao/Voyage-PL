@@ -228,3 +228,20 @@ export async function loadVoyageReportSummary(estimateId: string) {
 
   return (await response.json()) as VoyageReportSummary;
 }
+
+export async function deleteEstimateSnapshot(estimateId: string) {
+  const response = await fetch(`${API_BASE_URL}/estimates/${estimateId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => undefined);
+    throw new VoyageApiError(
+      error?.message ?? `Delete failed with status ${response.status}`,
+      error?.code,
+      error?.details ?? [],
+    );
+  }
+
+  return (await response.json()) as { estimateId: string; deleted: true };
+}

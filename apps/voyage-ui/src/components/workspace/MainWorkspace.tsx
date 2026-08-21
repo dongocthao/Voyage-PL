@@ -1,6 +1,5 @@
 import {
   Anchor,
-  BarChart3,
   BriefcaseBusiness,
   ChevronDown,
   CircleDollarSign,
@@ -25,10 +24,12 @@ import {
   Settings,
   Ship,
   UserRound,
+  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { Suspense, lazy, useCallback, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Modal } from "antd";
 import VoyageEstimator from "@/components/voyage-estimator/VoyageEstimator";
 import DialogShell from "@/components/voyage-estimator/DialogShell";
 import {
@@ -36,7 +37,7 @@ import {
   type ToolbarCommand,
   type ToolbarCommandState,
 } from "@/components/voyage-estimator/toolbarCommandManager";
-import type { WorkspaceToolbarRegistration } from "./workspaceToolbar";
+import type { WorkspaceSheetLifecycle, WorkspaceToolbarRegistration } from "./workspaceToolbar";
 
 const OperationApp = lazy(() => import("@/components/voyage-estimator/OperationApp"));
 const TimeCharterApp = lazy(() => import("@/components/voyage-estimator/TimeCharterApp"));
@@ -50,6 +51,26 @@ const EstimateListForm = lazy(() =>
 const OperationListForm = lazy(() =>
   import("@/components/operation-list-form").then((module) => ({
     default: module.OperationListForm,
+  })),
+);
+const CargoListForm = lazy(() =>
+  import("@/components/cargo-list-form").then((module) => ({
+    default: module.CargoListForm,
+  })),
+);
+const OrderListForm = lazy(() =>
+  import("@/components/order-list-form").then((module) => ({
+    default: module.OrderListForm,
+  })),
+);
+const PortListForm = lazy(() =>
+  import("@/components/port-list-form").then((module) => ({
+    default: module.PortListForm,
+  })),
+);
+const PositionListForm = lazy(() =>
+  import("@/components/position-list-form").then((module) => ({
+    default: module.PositionListForm,
   })),
 );
 const OptionForm = lazy(() =>
@@ -78,7 +99,29 @@ type WorkspacePage =
   | "operation"
   | "voyage-charter-party"
   | "time-charter-party"
+  | "cargo-list"
+  | "order-list"
+  | "port-list"
+  | "position-list"
   | "option";
+
+type WorkspaceSheet = {
+  id: string;
+  page: WorkspacePage;
+  title: string;
+  estimateId?: string;
+  operationId?: string;
+  sourceEstimateId?: string;
+  closable: boolean;
+};
+
+type PendingSheetAction = {
+  sheetId: string;
+  title: string;
+  action: () => void | Promise<void>;
+  allowSave: boolean;
+  reason?: "dirty" | "hydrating" | "error";
+};
 
 type RibbonAction = {
   command: ToolbarCommand;
@@ -86,6 +129,14 @@ type RibbonAction = {
   icon: React.ComponentType<{ className?: string; strokeWidth?: number; style?: CSSProperties }>;
   color: string;
 };
+
+type SettingsOption = {
+  label: string;
+  dialog?: "option" | "vessel";
+  page?: WorkspacePage;
+};
+
+type SettingDialogType = "option" | "vessel" | "cargo" | "port";
 
 const ribbonGroups: RibbonAction[][] = [
   [
@@ -122,16 +173,11 @@ const charterPartyOptions: Array<{ id: WorkspacePage; label: string }> = [
   { id: "time-charter-party", label: "Time Charter Party" },
 ];
 
-type SettingsOption = {
-  label: string;
-  dialog: "option" | "vessel" | "cargo" | "port";
-};
-
 const settingsOptions: SettingsOption[] = [
   { label: "Option", dialog: "option" },
   { label: "Vessel", dialog: "vessel" },
-  { label: "Cargo", dialog: "cargo" },
-  { label: "Port", dialog: "port" },
+  { label: "Cargo", page: "cargo-list" },
+  { label: "Port", page: "port-list" },
 ];
 
 const pageLabels: Record<WorkspacePage, string> = {
@@ -143,90 +189,397 @@ const pageLabels: Record<WorkspacePage, string> = {
   operation: "Operation",
   "voyage-charter-party": "Voyage Charter Party",
   "time-charter-party": "Time Charter Party",
+  "cargo-list": "Cargo List",
+  "order-list": "Order list",
+  "port-list": "Port List",
+  "position-list": "Position list",
   option: "Option",
 };
 
+const defaultToolbarRegistration: WorkspaceToolbarRegistration = {
+  hasSheet: false,
+  hasEstimate: false,
+  isDirty: false,
+  isUserModified: false,
+  lifecycle: "settled",
+  execute: {},
+};
+
+const allCommands: ToolbarCommand[] = [
+  "new",
+  "delete",
+  "save",
+  "saveAs",
+  "open",
+  "reload",
+  "undo",
+  "redo",
+  "increase",
+  "decrease",
+  "options",
+  "toOperation",
+];
+
+const dirtySensitiveCommands = new Set<ToolbarCommand>(["new", "delete", "open", "reload"]);
+
+function getCommandLabel(command: ToolbarCommand) {
+  switch (command) {
+    case "new":
+      return "New Sheet";
+    case "delete":
+      return "Delete Sheet";
+    case "save":
+      return "Save";
+    case "saveAs":
+      return "Save As";
+    case "open":
+      return "Open";
+    case "reload":
+      return "Reload";
+    case "undo":
+      return "Undo";
+    case "redo":
+      return "Redo";
+    case "increase":
+      return "Increase";
+    case "decrease":
+      return "Decrease";
+    case "options":
+      return "Option";
+    case "toOperation":
+      return "To Operation";
+    default:
+      return command;
+  }
+}
+
+function getCommandPolicy(page: WorkspacePage | undefined, command: ToolbarCommand) {
+  if (!page) {
+    return { allowed: false, reason: "There is no active sheet." };
+  }
+
+  if (page === "operation" && command === "delete") {
+    return { allowed: false, reason: "Delete Sheet is not available for Operation." };
+  }
+
+  if (
+    (page === "cargo-list" ||
+      page === "port-list" ||
+      page === "order-list" ||
+      page === "position-list" ||
+      page === "option") &&
+    (command === "save" || command === "saveAs" || command === "reload" || command === "toOperation")
+  ) {
+    return {
+      allowed: false,
+      reason: `${getCommandLabel(command)} is not available for ${pageLabels[page]}.`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+function singletonSheet(page: WorkspacePage, closable = true): WorkspaceSheet {
+  return {
+    id: `page:${page}`,
+    page,
+    title: pageLabels[page],
+    closable,
+  };
+}
+
+function estimateSheet(page: "voyage-estimation" | "time-charter" | "cargo-relet", estimateId?: string) {
+  return {
+    id: estimateId ? `${page}:${estimateId}` : `page:${page}`,
+    page,
+    estimateId,
+    title: estimateId ? `${pageLabels[page]} ${estimateId}` : pageLabels[page],
+    closable: true,
+  } satisfies WorkspaceSheet;
+}
+
+function operationSheet({
+  operationId,
+  sourceEstimateId,
+}: {
+  operationId?: string;
+  sourceEstimateId?: string;
+}) {
+  const suffix = operationId ?? (sourceEstimateId ? `E${sourceEstimateId}` : "New");
+  return {
+    id: operationId
+      ? `operation:${operationId}`
+      : sourceEstimateId
+        ? `operation:estimate:${sourceEstimateId}`
+        : "page:operation",
+    page: "operation" as const,
+    operationId,
+    sourceEstimateId,
+    title: `Operation ${suffix}`,
+    closable: true,
+  } satisfies WorkspaceSheet;
+}
+
+function sectionForPage(page: WorkspacePage) {
+  if (page === "option" || page === "cargo-list" || page === "port-list") return "Settings";
+  if (page === "order-list" || page === "position-list") return "Market";
+  if (page.includes("charter-party")) return "Charter Party";
+  if (page === "operation" || page === "operation-list") return "Operation";
+  return "Estimation";
+}
+
+function titleForEstimate(type: "Voyage Charter" | "Time Charter" | "Cargo Relet", estimateId: string) {
+  if (type === "Time Charter") return `Time Charter ${estimateId}`;
+  if (type === "Cargo Relet") return `Cargo Relet ${estimateId}`;
+  return `Voyage Estimation ${estimateId}`;
+}
+
 export default function MainWorkspace() {
-  const [page, setPage] = useState<WorkspacePage>("voyage-estimation");
-  const [activeSettingDialog, setActiveSettingDialog] = useState<
-    SettingsOption["dialog"] | null
-  >(null);
+  const [sheets, setSheets] = useState<WorkspaceSheet[]>([singletonSheet("voyage-estimation", false)]);
+  const [activeSheetId, setActiveSheetId] = useState("page:voyage-estimation");
+  const [activeSettingDialog, setActiveSettingDialog] = useState<SettingDialogType | null>(null);
+  const [selectedCargoId, setSelectedCargoId] = useState<string>();
+  const [selectedPortId, setSelectedPortId] = useState<string>();
   const [sidebarWidth, setSidebarWidth] = useState(90);
   const [estimationOpen, setEstimationOpen] = useState(false);
   const [charterPartyOpen, setCharterPartyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [toolbarMessage, setToolbarMessage] = useState<string>();
-  const [toolbarRegistration, setToolbarRegistration] = useState<WorkspaceToolbarRegistration>({
-    hasSheet: false,
-    hasEstimate: false,
-    execute: {},
-  });
-  const [operationSourceEstimateId, setOperationSourceEstimateId] = useState<string>();
-  const [selectedOperationId, setSelectedOperationId] = useState<string>();
-  const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
-  const toolbarManager = useMemo(
-    () => new ToolbarCommandManager(toolbarRegistration.hasSheet, toolbarRegistration.hasEstimate),
-    [toolbarRegistration.hasEstimate, toolbarRegistration.hasSheet],
+  const [toolbarRegistrations, setToolbarRegistrations] = useState<Record<string, WorkspaceToolbarRegistration>>(
+    {},
   );
-  const toolbarCommandState = useMemo(() => toolbarManager.getState(), [toolbarManager]);
-  const registerToolbar = useCallback((registration: WorkspaceToolbarRegistration) => {
-    setToolbarRegistration(registration);
+  const [pendingSheetAction, setPendingSheetAction] = useState<PendingSheetAction | null>(null);
+  const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const activeSheet = useMemo(
+    () => sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0],
+    [activeSheetId, sheets],
+  );
+  const activePage = activeSheet?.page ?? "voyage-estimation";
+  const activeToolbarRegistration =
+    (activeSheet ? toolbarRegistrations[activeSheet.id] : undefined) ?? defaultToolbarRegistration;
+
+  const toolbarManager = useMemo(
+    () =>
+      new ToolbarCommandManager(
+        activeToolbarRegistration.hasSheet,
+        activeToolbarRegistration.hasEstimate,
+      ),
+    [activeToolbarRegistration.hasEstimate, activeToolbarRegistration.hasSheet],
+  );
+
+  const toolbarCommandState = useMemo<ToolbarCommandState>(() => {
+    const baseState = toolbarManager.getState();
+    const nextState = { ...baseState };
+    for (const command of allCommands) {
+      const policy = getCommandPolicy(activeSheet?.page, command);
+      if (!policy.allowed || !activeToolbarRegistration.execute[command]) {
+        nextState[command] = false;
+      }
+    }
+    return nextState;
+  }, [activeSheet?.page, activeToolbarRegistration.execute, toolbarManager]);
+
+  const registerToolbarForSheet = useCallback(
+    (sheetId: string) => (registration: WorkspaceToolbarRegistration) => {
+      setToolbarRegistrations((current) => ({ ...current, [sheetId]: registration }));
+    },
+    [],
+  );
+
+  const openOrActivateSheet = useCallback((nextSheet: WorkspaceSheet) => {
+    setSheets((current) => {
+      if (current.some((sheet) => sheet.id === nextSheet.id)) {
+        return current;
+      }
+      return [...current, nextSheet];
+    });
+    setActiveSheetId(nextSheet.id);
+    setToolbarMessage(undefined);
   }, []);
 
-  const resetToolbarRegistration = () => {
-    setToolbarMessage(undefined);
-    setToolbarRegistration({ hasSheet: false, hasEstimate: false, execute: {} });
-  };
+  const getSheetRegistration = useCallback(
+    (sheetId: string) => toolbarRegistrations[sheetId] ?? defaultToolbarRegistration,
+    [toolbarRegistrations],
+  );
 
-  const executeToolbarCommand = (command: ToolbarCommand) => {
-    const result = toolbarManager.execute(command);
-    if (!result.ok) {
-      setToolbarMessage(result.message);
-      return;
+  const anyDirtySheets = useMemo(
+    () => Object.values(toolbarRegistrations).some((registration) => registration.isDirty),
+    [toolbarRegistrations],
+  );
+
+  const runPendingSheetAction = useCallback(async () => {
+    if (!pendingSheetAction) return;
+    const nextAction = pendingSheetAction.action;
+    setPendingSheetAction(null);
+    await Promise.resolve(nextAction());
+  }, [pendingSheetAction]);
+
+  const requestDirtyConfirmation = useCallback(
+    (
+      sheetId: string,
+      action: () => void | Promise<void>,
+      options?: { allowSave?: boolean; reason?: "dirty" | "hydrating" | "error" },
+    ) => {
+      const sheet = sheets.find((item) => item.id === sheetId);
+      const title = sheet?.title ?? "Current sheet";
+      setPendingSheetAction({
+        sheetId,
+        title,
+        action,
+        allowSave: options?.allowSave ?? true,
+        reason: options?.reason ?? "dirty",
+      });
+    },
+    [sheets],
+  );
+
+  const shouldGuardSheet = useCallback((registration: WorkspaceToolbarRegistration) => {
+    const lifecycle = registration.lifecycle ?? "settled";
+    if (lifecycle === "error") {
+      return registration.isUserModified === true
+        ? { guard: true, allowSave: false, reason: "error" as const }
+        : { guard: false, allowSave: false, reason: "error" as const };
+    }
+    if (lifecycle === "loading" || lifecycle === "hydrating" || lifecycle === "init") {
+      return registration.isUserModified === true
+        ? { guard: true, allowSave: false, reason: "hydrating" as const }
+        : { guard: false, allowSave: false, reason: "hydrating" as const };
     }
 
-    setToolbarMessage(undefined);
-    const handler = toolbarRegistration.execute[command];
-    if (handler) {
-      handler();
-      if (command === "new") {
-        setToolbarRegistration((current) => ({ ...current, hasSheet: true, hasEstimate: false }));
+    return registration.isDirty === true
+      ? { guard: true, allowSave: true, reason: "dirty" as const }
+      : { guard: false, allowSave: true, reason: "dirty" as const };
+  }, []);
+
+  const runGuardedSheetAction = useCallback(
+    async (sheetId: string, action: () => void | Promise<void>) => {
+      const registration = getSheetRegistration(sheetId);
+      const guardState = shouldGuardSheet(registration);
+      if (guardState.guard) {
+        requestDirtyConfirmation(sheetId, action, {
+          allowSave: guardState.allowSave,
+          reason: guardState.reason,
+        });
+        return;
       }
-      if (command === "delete") {
-        setToolbarRegistration((current) => ({ ...current, hasSheet: false, hasEstimate: false }));
+      await Promise.resolve(action());
+    },
+    [getSheetRegistration, requestDirtyConfirmation, shouldGuardSheet],
+  );
+
+  const closeSheet = useCallback(
+    (sheetId: string) => {
+      setSheets((current) => {
+        if (current.length <= 1) return current;
+        const index = current.findIndex((sheet) => sheet.id === sheetId);
+        if (index < 0) return current;
+        const remaining = current.filter((sheet) => sheet.id !== sheetId);
+        if (activeSheetId === sheetId) {
+          const fallback = remaining[Math.max(0, index - 1)] ?? remaining[0];
+          setActiveSheetId(fallback.id);
+        }
+        return remaining;
+      });
+      setToolbarRegistrations((current) => {
+        const next = { ...current };
+        delete next[sheetId];
+        return next;
+      });
+      setToolbarMessage(undefined);
+    },
+    [activeSheetId],
+  );
+
+  const openEstimateSheet = useCallback(
+    (estimate: { id: string; type: "Voyage Charter" | "Time Charter" | "Cargo Relet" }) => {
+      const page =
+        estimate.type === "Time Charter"
+          ? "time-charter"
+          : estimate.type === "Cargo Relet"
+            ? "cargo-relet"
+            : "voyage-estimation";
+      openOrActivateSheet({
+        ...estimateSheet(page, estimate.id),
+        title: titleForEstimate(estimate.type, estimate.id),
+      });
+    },
+    [openOrActivateSheet],
+  );
+
+  const openOperationSheet = useCallback(
+    (params: { operationId?: string; sourceEstimateId?: string }) => {
+      openOrActivateSheet(operationSheet(params));
+    },
+    [openOrActivateSheet],
+  );
+
+  const executeToolbarCommand = useCallback(
+    async (command: ToolbarCommand) => {
+      if (!activeSheet) {
+        setToolbarMessage("There is no active sheet.");
+        return;
       }
-      return;
-    }
 
-    if (command === "toOperation") {
-      resetToolbarRegistration();
-      setOperationSourceEstimateId(undefined);
-      setSelectedOperationId(undefined);
-      setPage("operation");
-      return;
-    }
+      const commandPolicy = getCommandPolicy(activeSheet.page, command);
+      if (!commandPolicy.allowed) {
+        setToolbarMessage(commandPolicy.reason);
+        return;
+      }
 
-    if (command === "options") {
-      setToolbarMessage("Options are not available for this sheet yet.");
-      return;
-    }
+      if (!toolbarCommandState[command]) {
+        const result = toolbarManager.execute(command);
+        setToolbarMessage(
+          result.ok
+            ? `${getCommandLabel(command)} is not available for the current sheet.`
+            : result.message,
+        );
+        return;
+      }
 
-    setToolbarMessage(`Command ${command} is not available for this sheet yet.`);
-  };
+      const handler = activeToolbarRegistration.execute[command];
+      if (!handler) {
+        setToolbarMessage(`${getCommandLabel(command)} is not available for the current sheet.`);
+        return;
+      }
+
+      const runHandler = async () => {
+        setToolbarMessage(undefined);
+        try {
+          await Promise.resolve(handler());
+        } catch (error) {
+          setToolbarMessage(error instanceof Error ? error.message : `Command ${command} failed.`);
+        }
+      };
+
+      const guardState = shouldGuardSheet(activeToolbarRegistration);
+      if (guardState.guard && dirtySensitiveCommands.has(command)) {
+        requestDirtyConfirmation(activeSheet.id, runHandler, {
+          allowSave: guardState.allowSave,
+          reason: guardState.reason,
+        });
+        return;
+      }
+
+      await runHandler();
+    },
+    [
+      activeSheet,
+      activeToolbarRegistration.execute,
+      activeToolbarRegistration.isDirty,
+      requestDirtyConfirmation,
+      shouldGuardSheet,
+      toolbarCommandState,
+      toolbarManager,
+    ],
+  );
 
   const breadcrumb = useMemo(() => {
-    const section =
-      page === "option"
-        ? "Settings"
-        : page.includes("charter-party")
-          ? "Charter Party"
-          : page === "operation" || page === "operation-list"
-            ? "Operation"
-            : "Estimation";
-    const pageLabel = pageLabels[page];
+    const section = sectionForPage(activePage);
+    const pageLabel = activeSheet?.title ?? pageLabels[activePage];
     return pageLabel === section ? ["Voyage P&L", section] : ["Voyage P&L", section, pageLabel];
-  }, [page]);
+  }, [activePage, activeSheet?.title]);
 
   const startResize = (event: React.MouseEvent<HTMLDivElement>) => {
     dragState.current = { startX: event.clientX, startWidth: sidebarWidth };
@@ -247,6 +600,203 @@ export default function MainWorkspace() {
     window.addEventListener("mouseup", stopResize);
   };
 
+  const openSidebarPage = useCallback(
+    (nextPage: WorkspacePage) => {
+      void runGuardedSheetAction(activeSheetId, () => {
+        openOrActivateSheet(singletonSheet(nextPage));
+        setEstimationOpen(false);
+        setCharterPartyOpen(false);
+        setSettingsOpen(false);
+        setToolbarMessage(undefined);
+      });
+    },
+    [activeSheetId, openOrActivateSheet, runGuardedSheetAction],
+  );
+
+  const openSettingsTarget = useCallback(
+    (option: SettingsOption) => {
+      void runGuardedSheetAction(activeSheetId, () => {
+        setSettingsOpen(false);
+        setEstimationOpen(false);
+        setCharterPartyOpen(false);
+        if (option.page) {
+          openOrActivateSheet(singletonSheet(option.page));
+          setToolbarMessage(undefined);
+          return;
+        }
+        setActiveSettingDialog(option.dialog ?? null);
+      });
+    },
+    [activeSheetId, openOrActivateSheet, runGuardedSheetAction],
+  );
+
+  const activateSheet = useCallback(
+    (sheetId: string) => {
+      if (sheetId === activeSheetId) return;
+      void runGuardedSheetAction(activeSheetId, () => {
+        setActiveSheetId(sheetId);
+        setToolbarMessage(undefined);
+      });
+    },
+    [activeSheetId, runGuardedSheetAction],
+  );
+
+  const requestCloseSheet = useCallback(
+    (sheetId: string) => {
+      void runGuardedSheetAction(sheetId, () => closeSheet(sheetId));
+    },
+    [closeSheet, runGuardedSheetAction],
+  );
+
+  const handleDirtyModalCancel = useCallback(() => {
+    setPendingSheetAction(null);
+  }, []);
+
+  const handleDirtyModalDiscard = useCallback(() => {
+    void runPendingSheetAction();
+  }, [runPendingSheetAction]);
+
+  const handleDirtyModalSave = useCallback(async () => {
+    if (!pendingSheetAction) return;
+    if (!pendingSheetAction.allowSave) {
+      return;
+    }
+    const registration = getSheetRegistration(pendingSheetAction.sheetId);
+    const saveHandler = registration.execute.save ?? registration.execute.saveAs;
+    if (!saveHandler) {
+      setToolbarMessage(`Save is not available for ${pendingSheetAction.title}.`);
+      return;
+    }
+
+    try {
+      const result = await Promise.resolve(saveHandler());
+      if (result === false) {
+        return;
+      }
+      await runPendingSheetAction();
+    } catch (error) {
+      setToolbarMessage(error instanceof Error ? error.message : "Save failed.");
+    }
+  }, [getSheetRegistration, pendingSheetAction, runPendingSheetAction]);
+
+  const dirtyModalText = pendingSheetAction
+    ? pendingSheetAction.reason === "hydrating"
+      ? `${pendingSheetAction.title} is still loading and has user changes.`
+      : pendingSheetAction.reason === "error"
+        ? `${pendingSheetAction.title} has load errors and user changes.`
+        : `${pendingSheetAction.title} has unsaved changes.`
+    : "This sheet has unsaved changes.";
+  const dirtyModalHelpText = pendingSheetAction
+    ? pendingSheetAction.allowSave
+      ? "Save before continuing, discard your changes, or cancel to stay on the current sheet."
+      : "Saving is temporarily disabled because this sheet is not in a reliable state yet. You can discard the pending edits or stay on the current sheet."
+    : "Save before continuing, discard your changes, or cancel to stay on the current sheet.";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!anyDirtySheets) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [anyDirtySheets]);
+
+  const renderSheet = useCallback(
+    (sheet: WorkspaceSheet) => {
+      const registerWorkspaceToolbar = registerToolbarForSheet(sheet.id);
+
+      if (sheet.page === "estimate-list") {
+        return (
+          <EstimateListForm
+            registerWorkspaceToolbar={registerWorkspaceToolbar}
+            onOpenEstimate={openEstimateSheet}
+          />
+        );
+      }
+      if (sheet.page === "voyage-estimation") {
+        return (
+          <VoyageEstimator
+            registerWorkspaceToolbar={registerWorkspaceToolbar}
+            initialEstimateId={sheet.estimateId}
+            onToOperation={(estimateId) => openOperationSheet({ sourceEstimateId: estimateId })}
+          />
+        );
+      }
+      if (sheet.page === "time-charter") {
+        return (
+          <TimeCharterApp
+            registerWorkspaceToolbar={registerWorkspaceToolbar}
+            initialEstimateId={sheet.estimateId}
+          />
+        );
+      }
+      if (sheet.page === "cargo-relet") {
+        return (
+          <CargoReletApp
+            registerWorkspaceToolbar={registerWorkspaceToolbar}
+            initialEstimateId={sheet.estimateId}
+          />
+        );
+      }
+      if (sheet.page === "operation-list") {
+        return (
+          <OperationListForm
+            registerWorkspaceToolbar={registerWorkspaceToolbar}
+            onOpenOperation={(operationId) => openOperationSheet({ operationId })}
+          />
+        );
+      }
+      if (sheet.page === "operation") {
+        return (
+          <OperationApp
+            embedded
+            registerWorkspaceToolbar={registerWorkspaceToolbar}
+            operationId={sheet.operationId}
+            sourceEstimateId={sheet.sourceEstimateId}
+          />
+        );
+      }
+      if (sheet.page === "order-list") {
+        return <OrderListForm registerWorkspaceToolbar={registerWorkspaceToolbar} />;
+      }
+      if (sheet.page === "cargo-list") {
+        return (
+          <CargoListForm
+            registerWorkspaceToolbar={registerWorkspaceToolbar}
+            onOpenCargo={(cargoId) => {
+              setSelectedCargoId(cargoId);
+              setActiveSettingDialog("cargo");
+            }}
+          />
+        );
+      }
+      if (sheet.page === "position-list") {
+        return <PositionListForm registerWorkspaceToolbar={registerWorkspaceToolbar} />;
+      }
+      if (sheet.page === "port-list") {
+        return (
+          <PortListForm
+            registerWorkspaceToolbar={registerWorkspaceToolbar}
+            onOpenPort={(portId) => {
+              setSelectedPortId(portId);
+              setActiveSettingDialog("port");
+            }}
+          />
+        );
+      }
+      if (sheet.page === "voyage-charter-party") {
+        return <CharterPartyApp type="voyage" />;
+      }
+      if (sheet.page === "time-charter-party") {
+        return <CharterPartyApp type="time-charter" />;
+      }
+      return <OptionForm />;
+    },
+    [openEstimateSheet, openOperationSheet, registerToolbarForSheet],
+  );
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#F0F3F6] font-['Segoe_UI',Tahoma,Arial,sans-serif] text-[#102A3A]">
       <Topbar
@@ -263,7 +813,7 @@ export default function MainWorkspace() {
       <div className="flex h-[calc(100vh-52px-52px-28px)] min-h-0">
         <Sidebar
           width={sidebarWidth}
-          page={page}
+          page={activePage}
           estimationOpen={estimationOpen}
           charterPartyOpen={charterPartyOpen}
           settingsOpen={settingsOpen}
@@ -282,22 +832,9 @@ export default function MainWorkspace() {
             setEstimationOpen(false);
             setCharterPartyOpen(false);
           }}
-          onSelectPage={(nextPage) => {
-            resetToolbarRegistration();
-            if (nextPage !== "operation") {
-              setOperationSourceEstimateId(undefined);
-              setSelectedOperationId(undefined);
-            }
-            setPage(nextPage);
-            setEstimationOpen(false);
-            setCharterPartyOpen(false);
-            setSettingsOpen(false);
-          }}
+          onSelectPage={openSidebarPage}
           onSelectSettings={(option) => {
-            setSettingsOpen(false);
-            setEstimationOpen(false);
-            setCharterPartyOpen(false);
-            setActiveSettingDialog(option.dialog);
+            openSettingsTarget(option);
           }}
         />
         <div
@@ -305,72 +842,136 @@ export default function MainWorkspace() {
           className="w-1 shrink-0 cursor-col-resize bg-[#dcdfe6] transition-colors hover:bg-[#b8c2cc]"
           onMouseDown={startResize}
         />
-        <main className="min-w-0 flex-1 overflow-auto bg-white">
-          <div className="min-w-[1180px] p-2">
-            <Suspense
-              fallback={<div className="p-4 text-sm text-[#006994]">Loading workspace...</div>}
-            >
-              {page === "estimate-list" && (
-                <EstimateListForm registerWorkspaceToolbar={registerToolbar} />
-              )}
-              {page === "voyage-estimation" && (
-                <VoyageEstimator
-                  registerWorkspaceToolbar={registerToolbar}
-                  onToOperation={(estimateId) => {
-                    resetToolbarRegistration();
-                    setOperationSourceEstimateId(estimateId);
-                    setPage("operation");
-                  }}
-                />
-              )}
-              {page === "time-charter" && (
-                <TimeCharterApp registerWorkspaceToolbar={registerToolbar} />
-              )}
-              {page === "cargo-relet" && (
-                <CargoReletApp registerWorkspaceToolbar={registerToolbar} />
-              )}
-              {page === "operation-list" && (
-                <OperationListForm
-                  registerWorkspaceToolbar={registerToolbar}
-                  onOpenOperation={(operationId) => {
-                    resetToolbarRegistration();
-                    setSelectedOperationId(operationId);
-                    setOperationSourceEstimateId(undefined);
-                    setPage("operation");
-                  }}
-                />
-              )}
-              {page === "operation" && (
-                <OperationApp
-                  embedded
-                  registerWorkspaceToolbar={registerToolbar}
-                  operationId={selectedOperationId}
-                  sourceEstimateId={operationSourceEstimateId}
-                />
-              )}
-              {page === "voyage-charter-party" && <CharterPartyApp type="voyage" />}
-              {page === "time-charter-party" && <CharterPartyApp type="time-charter" />}
-              {page === "option" && <OptionForm />}
-            </Suspense>
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-white">
+          <SheetTabs
+            sheets={sheets}
+            activeSheetId={activeSheetId}
+            onActivate={activateSheet}
+            onClose={requestCloseSheet}
+          />
+          <div className="min-h-0 flex-1 overflow-auto">
+            <div className="min-w-[1180px] p-2">
+              <Suspense
+                fallback={<div className="p-4 text-sm text-[#006994]">Loading workspace...</div>}
+              >
+                {sheets.map((sheet) => (
+                  <div key={sheet.id} className={sheet.id === activeSheetId ? "block" : "hidden"}>
+                    {renderSheet(sheet)}
+                  </div>
+                ))}
+              </Suspense>
+            </div>
           </div>
         </main>
       </div>
       {activeSettingDialog && (
         <SettingsDialogLayer
           type={activeSettingDialog}
+          cargoId={selectedCargoId}
+          portId={selectedPortId}
           onClose={() => setActiveSettingDialog(null)}
         />
       )}
+      <Modal
+        open={Boolean(pendingSheetAction)}
+        title="Unsaved changes"
+        onCancel={handleDirtyModalCancel}
+        closable={false}
+        maskClosable={false}
+        footer={[
+          <button
+            key="cancel"
+            type="button"
+            onClick={handleDirtyModalCancel}
+            className="rounded border border-[#d8e2ea] bg-white px-4 py-1.5 text-[13px] font-semibold text-[#2b3e4d]"
+          >
+            Cancel
+          </button>,
+          <button
+            key="discard"
+            type="button"
+            onClick={handleDirtyModalDiscard}
+            className="rounded border border-[#d8e2ea] bg-white px-4 py-1.5 text-[13px] font-semibold text-[#2b3e4d]"
+          >
+            Don't Save
+          </button>,
+          <button
+            key="save"
+            type="button"
+            onClick={() => void handleDirtyModalSave()}
+            disabled={!pendingSheetAction?.allowSave}
+            className="rounded bg-[#155b78] px-4 py-1.5 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Save
+          </button>,
+        ]}
+      >
+        <p className="text-[13px] text-[#2b3e4d]">{dirtyModalText}</p>
+        <p className="mt-2 text-[12px] text-[#617381]">{dirtyModalHelpText}</p>
+      </Modal>
       <StatusBar />
+    </div>
+  );
+}
+
+function SheetTabs({
+  sheets,
+  activeSheetId,
+  onActivate,
+  onClose,
+}: {
+  sheets: WorkspaceSheet[];
+  activeSheetId: string;
+  onActivate: (sheetId: string) => void;
+  onClose: (sheetId: string) => void;
+}) {
+  return (
+    <div className="flex h-9 items-end gap-1 overflow-x-auto border-b border-[#d8e2ea] bg-[#f7f9fb] px-2 pt-1">
+      {sheets.map((sheet) => {
+        const active = sheet.id === activeSheetId;
+        return (
+          <div
+            key={sheet.id}
+            className={`flex h-8 min-w-[160px] max-w-[280px] items-center gap-2 rounded-t-[4px] border border-b-0 px-3 text-[12px] ${
+              active
+                ? "border-[#bfd1df] bg-white font-semibold text-[#0e5d80]"
+                : "border-[#d8e2ea] bg-[#edf3f7] text-[#526677]"
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => onActivate(sheet.id)}
+              className="min-w-0 flex-1 truncate text-left"
+              title={sheet.title}
+            >
+              {sheet.title}
+            </button>
+            {sheet.closable && sheets.length > 1 && (
+              <button
+                type="button"
+                onClick={() => onClose(sheet.id)}
+                className="rounded p-[1px] text-[#6e7d88] hover:bg-[#dfe8ee] hover:text-[#1f3342]"
+                aria-label={`Close ${sheet.title}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 function SettingsDialogLayer({
   type,
+  cargoId,
+  portId,
   onClose,
 }: {
-  type: SettingsOption["dialog"];
+  type: "option" | "vessel" | "cargo" | "port";
+  cargoId?: string;
+  portId?: string;
   onClose: () => void;
 }) {
   return (
@@ -398,7 +999,7 @@ function SettingsDialogLayer({
               bodyPadding={0}
               actions={[]}
             >
-              <NewCargoForm embedded onClose={onClose} />
+              <NewCargoForm embedded initialCargoId={cargoId} onClose={onClose} />
             </DialogShell>
           )}
           {type === "port" && (
@@ -410,7 +1011,7 @@ function SettingsDialogLayer({
               bodyPadding={0}
               actions={[]}
             >
-              <NewPortForm embedded onClose={onClose} />
+              <NewPortForm embedded initialPortId={portId} onClose={onClose} />
             </DialogShell>
           )}
           {type === "vessel" && <NewVesselFormAnt onClose={onClose} />}
@@ -495,7 +1096,7 @@ function RibbonBar({
   onCommand,
 }: {
   commandState: ToolbarCommandState;
-  onCommand: (command: ToolbarCommand) => void;
+  onCommand: (command: ToolbarCommand) => void | Promise<void>;
 }) {
   return (
     <section className="flex h-[52px] items-stretch overflow-x-auto border-b border-[#C8D3DC] bg-[#F4F7FA] px-2">
@@ -512,7 +1113,7 @@ function RibbonBar({
                 key={action.label}
                 type="button"
                 disabled={disabled}
-                onClick={() => onCommand(action.command)}
+                onClick={() => void onCommand(action.command)}
                 className="flex h-[46px] w-[70px] flex-col items-center justify-center gap-[2px] rounded-[4px] text-[10px] font-semibold text-[#2B3E4D] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Icon className="h-5 w-5" style={{ color: action.color }} strokeWidth={1.8} />
@@ -557,8 +1158,26 @@ function Sidebar({
       className="relative shrink-0 border-r border-[#0F4E68] bg-[#0B4B65] p-1"
       style={{ width }}
     >
-      <SidebarPlaceholder icon={PackageOpen} label="Cargo Offer" />
-      <SidebarPlaceholder icon={Ship} label="Open Position" />
+      <button
+        type="button"
+        onClick={() => onSelectPage("order-list")}
+        className={`${itemClass} ${
+          page === "order-list" ? "bg-[#237EA4] text-white" : "text-white/90 hover:bg-white/10"
+        }`}
+      >
+        <PackageOpen className="h-6 w-6" />
+        <span>Orders</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onSelectPage("position-list")}
+        className={`${itemClass} ${
+          page === "position-list" ? "bg-[#237EA4] text-white" : "text-white/90 hover:bg-white/10"
+        }`}
+      >
+        <Ship className="h-6 w-6" />
+        <span>Position</span>
+      </button>
 
       <div className="relative">
         <button
@@ -654,14 +1273,14 @@ function Sidebar({
         {settingsOpen && (
           <div className="absolute left-full top-0 z-20 ml-2 w-56 rounded border border-[#dcdfe6] bg-white py-1 shadow-lg">
             {settingsOptions.map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  onClick={() => onSelectSettings(option)}
-                  className="block w-full px-3 py-2 text-left text-sm text-[#172331] hover:bg-[#F0F3F6]"
-                >
-                  {option.label}
-                </button>
+              <button
+                key={option.label}
+                type="button"
+                onClick={() => onSelectSettings(option)}
+                className="block w-full px-3 py-2 text-left text-sm text-[#172331] hover:bg-[#F0F3F6]"
+              >
+                {option.label}
+              </button>
             ))}
           </div>
         )}

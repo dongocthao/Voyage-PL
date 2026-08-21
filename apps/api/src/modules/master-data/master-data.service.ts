@@ -15,6 +15,7 @@ import {
 } from './dto/vessel-master.dto';
 
 const TAKE = 30;
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 const SYSTEM_OPTIONS_SCOPE = 'SYSTEM';
 const DEFAULT_SYSTEM_OPTIONS = {
   decimalPlace: 2,
@@ -139,7 +140,20 @@ function dateFromInput(value: string, name: string) {
 
 @Injectable()
 export class MasterDataService {
+  private readonly catalogCache = new Map<string, { expiresAt: number; value: unknown }>();
+
   constructor(private readonly prisma: PrismaService) {}
+
+  private async getCachedCatalog<T>(key: string, loader: () => Promise<T>): Promise<T> {
+    const cached = this.catalogCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value as T;
+    }
+
+    const value = await loader();
+    this.catalogCache.set(key, { expiresAt: Date.now() + CATALOG_CACHE_TTL_MS, value });
+    return value;
+  }
 
   async systemOptions() {
     const row = await this.prisma.app_settings.findUnique({
@@ -185,20 +199,31 @@ export class MasterDataService {
       where: {
         is_active: true,
         ...(query
-          ? { cargo_name: { contains: query, mode: 'insensitive' } }
+          ? {
+              OR: [
+                { cargo_name: { contains: query, mode: 'insensitive' } },
+                { code: { contains: query, mode: 'insensitive' } },
+                { cargo_group: { contains: query, mode: 'insensitive' } },
+                { cargo_class: { contains: query, mode: 'insensitive' } },
+                { un_number: { contains: query, mode: 'insensitive' } },
+              ],
+            }
           : {}),
       },
       orderBy: { cargo_name: 'asc' },
-      take: TAKE,
     });
 
     return rows.map((row) => ({
       id: row.id.toString(),
       code: row.code,
       name: row.cargo_name,
+      cargoGroup: row.cargo_group,
+      cargoClass: row.cargo_class,
+      unNumber: row.un_number,
       defaultUnit: row.default_unit,
       stowageFactor: row.stowage_factor?.toNumber(),
       stowageFactorUnit: row.stowage_factor_unit,
+      lastUpdated: row.updated_at.toISOString(),
       isActive: row.is_active,
     }));
   }
@@ -239,21 +264,76 @@ export class MasterDataService {
   async ports(query?: string) {
     const rows = await this.prisma.ports.findMany({
       where: query
-        ? { port_name: { contains: query, mode: 'insensitive' } }
+        ? {
+            OR: [
+              { port_name: { contains: query, mode: 'insensitive' } },
+              { country_name: { contains: query, mode: 'insensitive' } },
+              { port_type_name: { contains: query, mode: 'insensitive' } },
+              { time_zone_code: { contains: query, mode: 'insensitive' } },
+              { unlocode: { contains: query, mode: 'insensitive' } },
+            ],
+          }
         : undefined,
       orderBy: { port_name: 'asc' },
-      take: TAKE,
       include: { countries: true, port_types: true },
     });
 
     return rows.map((row) => ({
       id: row.id.toString(),
       name: row.port_name,
-      country: row.countries?.name,
+      country: row.country_name ?? row.countries?.name,
       unlocode: row.unlocode,
+      timeZoneCode: row.time_zone_code,
+      portType: row.port_type_name ?? row.port_types?.name,
+      status: row.port_status === 'ACTIVE' ? 'Open' : 'Inactive',
+      latitude: row.latitude?.toNumber(),
+      longitude: row.longitude?.toNumber(),
       utcOffsetMin: row.utc_offset_min,
       isCanal: row.is_canal,
+      lastUpdated: row.updated_at.toISOString(),
       isActive: row.port_status === 'ACTIVE',
+    }));
+  }
+
+  async countries(query?: string) {
+    const rows = await this.prisma.countries.findMany({
+      where: query
+        ? {
+            OR: [
+              { iso_code: { contains: query.toUpperCase(), mode: 'insensitive' } },
+              { name: { contains: query, mode: 'insensitive' } },
+            ],
+          }
+        : undefined,
+      orderBy: [{ name: 'asc' }],
+      take: TAKE,
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      code: row.iso_code.trim(),
+      name: row.name,
+    }));
+  }
+
+  async portTypes(query?: string) {
+    const rows = await this.prisma.port_types.findMany({
+      where: query
+        ? {
+            OR: [
+              { code: { contains: query, mode: 'insensitive' } },
+              { name: { contains: query, mode: 'insensitive' } },
+            ],
+          }
+        : undefined,
+      orderBy: [{ name: 'asc' }],
+      take: TAKE,
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
     }));
   }
 
@@ -397,67 +477,151 @@ export class MasterDataService {
     }));
   }
 
-  async fuelTypes(query?: string) {
-    const rows = await this.prisma.fuel_types.findMany({
-      where: query
-        ? {
-            OR: [
-              { code: { contains: query, mode: 'insensitive' } },
-              { description: { contains: query, mode: 'insensitive' } },
-            ],
-          }
-        : undefined,
-      orderBy: { code: 'asc' },
-      take: TAKE,
-    });
+  async fuelCategories(query?: string) {
+    const key = `fuel-categories:${query ?? ''}`;
+    return this.getCachedCatalog(key, async () => {
+      const rows = await this.prisma.fuel_categories.findMany({
+        where: {
+          is_active: true,
+          ...(query
+            ? {
+                OR: [
+                  { code: { contains: query, mode: 'insensitive' } },
+                  { name: { contains: query, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: { name: 'asc' },
+        take: TAKE,
+      });
 
-    return rows.map((row) => ({
-      id: row.id,
-      code: row.code,
-      name: row.description,
-    }));
+      return rows.map((row) => ({
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        description: row.description,
+      }));
+    });
+  }
+
+  async fuelTypes({
+    query,
+    categoryId,
+    ecaOnly,
+  }: {
+    query?: string;
+    categoryId?: string;
+    ecaOnly?: boolean;
+  } = {}) {
+    const key = `fuel-types:${query ?? ''}:${categoryId ?? ''}:${ecaOnly ? 'eca' : 'all'}`;
+    return this.getCachedCatalog(key, async () => {
+      const rows = await this.prisma.fuel_types.findMany({
+        where: {
+          is_active: true,
+          ...(categoryId ? { fuel_category_id: Number(categoryId) } : {}),
+          ...(ecaOnly ? { is_eca_compliant: true } : {}),
+          ...(query
+            ? {
+                OR: [
+                  { code: { contains: query, mode: 'insensitive' } },
+                  { fuel_type_name: { contains: query, mode: 'insensitive' } },
+                  { description: { contains: query, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ fuel_category_id: 'asc' }, { code: 'asc' }],
+        take: TAKE,
+        include: { fuel_categories: true },
+      });
+
+      return rows.map((row) => ({
+        id: row.id,
+        code: row.code,
+        name: row.fuel_type_name ?? row.description ?? row.code,
+        fuelTypeName: row.fuel_type_name ?? row.description ?? row.code,
+        description: row.description,
+        categoryId: row.fuel_category_id,
+        categoryCode: row.fuel_categories?.code,
+        categoryName: row.fuel_categories?.name,
+        isoStandard: row.iso_standard,
+        maxSulphurPercent: row.max_sulphur_percent?.toNumber() ?? null,
+        carbonFactor: row.carbon_factor?.toNumber() ?? null,
+        defaultDensity: row.default_density?.toNumber() ?? null,
+        isEcaCompliant: row.is_eca_compliant,
+      }));
+    });
   }
 
   async vesselKinds(query?: string) {
-    const rows = await this.prisma.vessel_kinds.findMany({
-      where: query
-        ? {
-            OR: [
-              { code: { contains: query, mode: 'insensitive' } },
-              { name: { contains: query, mode: 'insensitive' } },
-            ],
-          }
-        : undefined,
-      orderBy: { name: 'asc' },
-      take: TAKE,
-    });
+    const key = `vessel-kinds:${query ?? ''}`;
+    return this.getCachedCatalog(key, async () => {
+      const rows = await this.prisma.vessel_kinds.findMany({
+        where: {
+          is_active: true,
+          ...(query
+            ? {
+                OR: [
+                  { code: { contains: query, mode: 'insensitive' } },
+                  { name: { contains: query, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: { name: 'asc' },
+        take: TAKE,
+      });
 
-    return rows.map((row) => ({
-      id: row.id,
-      code: row.code,
-      name: row.name,
-    }));
+      return rows.map((row) => ({
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        description: row.description,
+      }));
+    });
   }
 
-  async vesselTypes(query?: string) {
-    const rows = await this.prisma.vessel_types.findMany({
-      where: query
-        ? {
-            OR: [
-              { code: { contains: query, mode: 'insensitive' } },
-              { name: { contains: query, mode: 'insensitive' } },
-            ],
-          }
-        : undefined,
-      orderBy: { name: 'asc' },
-      take: TAKE,
-    });
+  async vesselTypes({
+    query,
+    kindId,
+  }: {
+    query?: string;
+    kindId?: string;
+  } = {}) {
+    const key = `vessel-types:${query ?? ''}:${kindId ?? ''}`;
+    return this.getCachedCatalog(key, async () => {
+      const rows = await this.prisma.vessel_types.findMany({
+        where: {
+          is_active: true,
+          ...(kindId ? { vessel_kind_id: Number(kindId) } : {}),
+          ...(query
+            ? {
+                OR: [
+                  { code: { contains: query, mode: 'insensitive' } },
+                  { type_name: { contains: query, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ dwt_min_range: 'asc' }, { type_name: 'asc' }],
+        take: TAKE,
+        include: { vessel_kinds: true },
+      });
 
-    return rows.map((row) => ({
-      id: row.id,
-      code: row.code,
-      name: row.name,
-    }));
+      return rows.map((row) => ({
+        id: row.id,
+        code: row.code,
+        name: row.type_name,
+        typeName: row.type_name,
+        kindId: row.vessel_kind_id,
+        kindCode: row.vessel_kinds?.code,
+        kindName: row.vessel_kinds?.name,
+        dwtMinRange: row.dwt_min_range?.toNumber() ?? null,
+        dwtMaxRange: row.dwt_max_range?.toNumber() ?? null,
+        description: row.description,
+      }));
+    });
   }
 
   async expenseCategories(query?: string) {
@@ -502,7 +666,7 @@ export class MasterDataService {
       tpc: row.tpc?.toNumber(),
       builtYear: row.built_year,
       vesselKind: row.vessel_kinds?.name,
-      vesselType: row.vessel_types?.name,
+      vesselType: row.vessel_types?.type_name,
     }));
   }
 
@@ -707,6 +871,8 @@ export class MasterDataService {
       port_no: body.portNo ?? null,
       time_zone_code: nullableString(body.timeZoneCode),
       unlocode: nullableString(body.unlocode),
+      latitude: nullableNumber(body.latitude),
+      longitude: nullableNumber(body.longitude),
       latitude_text: nullableString(body.latitudeText),
       longitude_text: nullableString(body.longitudeText),
       region_code: nullableString(body.regionCode),
@@ -763,6 +929,8 @@ export class MasterDataService {
       portNo: row.port_no,
       timeZoneCode: row.time_zone_code,
       unlocode: row.unlocode,
+      latitude: row.latitude?.toNumber(),
+      longitude: row.longitude?.toNumber(),
       latitudeText: row.latitude_text,
       longitudeText: row.longitude_text,
       regionCode: row.region_code,

@@ -7,7 +7,13 @@ import {
   MinusCircleOutlined,
   PlusCircleOutlined,
 } from "@ant-design/icons";
-import { fetchLookup, type LookupItem } from "../../lib/api/masterData";
+import {
+  fetchFuelTypes,
+  fetchLookup,
+  fetchVesselKinds,
+  fetchVesselTypes,
+  type LookupItem,
+} from "../../lib/api/masterData";
 import {
   saveVessel,
   type FuelCondition,
@@ -21,10 +27,12 @@ import {
   type VesselPerformanceMode,
 } from "../../lib/api/vessels";
 import DialogShell, { GroupTitle } from "./DialogShell";
+import { RemoteLookupSelect } from "./RemoteLookupSelect";
 
 const L = {
-  windowTitle: "New Vessel",
-  mv: "M.V.",
+  windowTitle: "Vessel Particulars",
+  mv: "Vessel name",
+  vesselId: "vessel_id",
   vesselKind: "Vessel Kind",
   vesselType: "Vessel Type",
   draft: "Draft",
@@ -63,7 +71,7 @@ const L = {
   owner: "Owner",
   ownership: "Ownership",
   callSign: "Call Sign",
-  imoNo: "IMO NO.",
+  imoNo: "IMO No.",
   vesselCode: "Vessel Code",
   hullNo: "Hull No.",
   dwcc: "DWCC",
@@ -134,6 +142,11 @@ const lookupOptions = (items: LookupItem[]) =>
     value: String(item.id),
     label: item.code ? `${item.name ?? item.code} (${item.code})` : (item.name ?? String(item.id)),
   }));
+const fuelLookupOptions = (items: LookupItem[]) =>
+  items.map((item) => ({
+    value: String(item.id),
+    label: item.name ?? item.code ?? String(item.id),
+  }));
 const inputStyle: React.CSSProperties = { height: 24, fontSize: 11, borderRadius: 2 };
 const selectStyle: React.CSSProperties = { width: "100%", fontSize: 11 };
 
@@ -190,6 +203,7 @@ function emptyProfile(
 
 function emptyVessel(fuelIds = DEFAULT_FUEL_IDS): VesselMaster {
   return {
+    vesselId: "",
     mvName: "",
     ownership: "OWNED",
     isActive: true,
@@ -342,7 +356,7 @@ function toNumber(value: string) {
 }
 
 function validateVessel(vessel: VesselMaster) {
-  if (!vessel.mvName.trim()) return "M.V. is required.";
+  if (!vessel.mvName.trim()) return "Vessel name is required.";
 
   const numericFields: Array<[keyof VesselMaster, string]> = [
     ["builtYear", L.built],
@@ -398,6 +412,7 @@ export default function NewVesselFormAnt({ onClose }: { onClose?: () => void } =
   const [profile, setProfile] = useState<PerfMode>("FULL");
   const [activeProfileIndex, setActiveProfileIndex] = useState(0);
   const [fuelIds, setFuelIds] = useState(DEFAULT_FUEL_IDS);
+  const [fuelTypes, setFuelTypes] = useState<LookupItem[]>([]);
   const [form, setForm] = useState<VesselMaster>(() => emptyVessel());
   const [vesselKinds, setVesselKinds] = useState<LookupItem[]>([]);
   const [vesselTypes, setVesselTypes] = useState<LookupItem[]>([]);
@@ -421,15 +436,15 @@ export default function NewVesselFormAnt({ onClose }: { onClose?: () => void } =
 
   useEffect(() => {
     void Promise.all([
-      fetchLookup("fuel-types"),
-      fetchLookup("vessel-kinds"),
-      fetchLookup("vessel-types"),
+      fetchFuelTypes(),
+      fetchVesselKinds(),
       fetchLookup("companies"),
     ])
-      .then(([fuelTypes, kinds, types, companyRows]) => {
+      .then(([fuelTypes, kinds, companyRows]) => {
         setVesselKinds(kinds);
-        setVesselTypes(types);
+        setVesselTypes([]);
         setCompanies(companyRows);
+        setFuelTypes(fuelTypes);
 
         const items = fuelTypes;
         const byCode = new Map(items.map((item) => [item.code, Number(item.id)]));
@@ -445,6 +460,31 @@ export default function NewVesselFormAnt({ onClose }: { onClose?: () => void } =
       .catch(() => messageApi.warning("Master-data lookup failed; using defaults where possible."));
   }, [messageApi]);
 
+  useEffect(() => {
+    if (!form.vesselKindId) {
+      setVesselTypes([]);
+      setForm((current) => ({
+        ...current,
+        vesselTypeId: null,
+      }));
+      return;
+    }
+
+    void fetchVesselTypes(form.vesselKindId)
+      .then((types) => {
+        setVesselTypes(types);
+        setForm((current) => {
+          if (!current.vesselTypeId) return current;
+          const exists = types.some((item) => Number(item.id) === current.vesselTypeId);
+          return exists ? current : { ...current, vesselTypeId: null };
+        });
+      })
+      .catch(() => {
+        setVesselTypes([]);
+        messageApi.warning("Vessel type lookup failed.");
+      });
+  }, [form.vesselKindId, messageApi]);
+
   const activeBunkerProfile = form.bunkerProfiles[activeProfileIndex] ?? form.bunkerProfiles[0];
   const activeMode = useMemo(
     () =>
@@ -455,6 +495,23 @@ export default function NewVesselFormAnt({ onClose }: { onClose?: () => void } =
 
   function setField<K extends keyof VesselMaster>(key: K, value: VesselMaster[K]) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function setFuelType(fuelRole: FuelRole, condition: FuelCondition, fuelTypeId: number) {
+    updateActiveMode((mode) => ({
+      ...mode,
+      consumption: mode.consumption.map((item) =>
+        item.fuelRole === fuelRole && item.condition === condition ? { ...item, fuelTypeId } : item,
+      ),
+    }));
+  }
+
+  function getFuelType(fuelRole: FuelRole, condition: FuelCondition) {
+    return (
+      activeMode.consumption.find(
+        (item) => item.fuelRole === fuelRole && item.condition === condition,
+      )?.fuelTypeId ?? null
+    );
   }
 
   function setNumberField(key: keyof VesselMaster, value: string) {
@@ -634,20 +691,29 @@ export default function NewVesselFormAnt({ onClose }: { onClose?: () => void } =
       <div className="grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-2">
         <div className="space-y-4">
           <div>
-            <Field label={L.mv} labelWidth={72}>
-              <TInput
-                value={form.mvName}
-                onChange={(event) => setField("mvName", event.target.value)}
-              />
-            </Field>
             <div className="grid grid-cols-2 gap-x-6">
+              <Field label={L.mv} labelWidth={72}>
+                <TInput
+                  value={form.mvName}
+                  onChange={(event) => setField("mvName", event.target.value)}
+                />
+              </Field>
+              <Field label={L.vesselId} labelWidth={96}>
+                <TInput value={form.vesselId ?? form.id ?? ""} readOnly align="right" />
+              </Field>
               <Field label={L.vesselKind} labelWidth={72}>
                 <Select
                   allowClear
                   showSearch
                   size="small"
                   value={form.vesselKindId ? String(form.vesselKindId) : undefined}
-                  onChange={(value) => setField("vesselKindId", value ? Number(value) : null)}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      vesselKindId: value ? Number(value) : null,
+                      vesselTypeId: null,
+                    }))
+                  }
                   options={lookupOptions(vesselKinds)}
                   style={selectStyle}
                 />
@@ -657,6 +723,7 @@ export default function NewVesselFormAnt({ onClose }: { onClose?: () => void } =
                   allowClear
                   showSearch
                   size="small"
+                  disabled={!form.vesselKindId}
                   value={form.vesselTypeId ? String(form.vesselTypeId) : undefined}
                   onChange={(value) => setField("vesselTypeId", value ? Number(value) : null)}
                   options={lookupOptions(vesselTypes)}
@@ -799,6 +866,9 @@ export default function NewVesselFormAnt({ onClose }: { onClose?: () => void } =
                     }))
                   }
                   copyNormalToEca={copyNormalToEca}
+                  fuelTypeOptions={fuelLookupOptions(fuelTypes)}
+                  getFuelType={getFuelType}
+                  setFuelType={setFuelType}
                 />
               ),
             }))}
@@ -810,19 +880,19 @@ export default function NewVesselFormAnt({ onClose }: { onClose?: () => void } =
             <GroupTitle>{L.general}</GroupTitle>
             <div className="grid grid-cols-2 gap-x-6">
               <Field label={L.owner} labelWidth={96} className="col-span-2">
-                <Select
-                  allowClear
-                  showSearch
-                  size="small"
-                  value={form.ownerCompanyId ?? undefined}
-                  onChange={(value) => setField("ownerCompanyId", value ? String(value) : null)}
-                  options={lookupOptions(companies)}
-                  filterOption={(input, option) =>
-                    String(option?.label ?? "")
-                      .toLowerCase()
-                      .includes(input.toLowerCase())
+                <RemoteLookupSelect
+                  value={form.ownerCompanyId ?? ""}
+                  initialOptions={companies}
+                  onInputChange={() => undefined}
+                  onResolvedChange={(_value, selected) =>
+                    setField("ownerCompanyId", selected ? String(selected.id) : null)
                   }
-                  style={selectStyle}
+                  fetchOptions={(query) => fetchLookup("companies", query)}
+                  formatOption={(item) =>
+                    item.code ? `${item.name ?? item.code} (${item.code})` : (item.name ?? String(item.id))
+                  }
+                  mapValue={(item) => String(item.id)}
+                  sortOptions={false}
                 />
               </Field>
               <Field label={L.callSign} labelWidth={96}>
@@ -1134,6 +1204,9 @@ function ProfileTabContent({
   setConsumption,
   setSpeed,
   copyNormalToEca,
+  fuelTypeOptions,
+  getFuelType,
+  setFuelType,
 }: {
   mode: VesselPerformanceMode;
   bunkerProfiles: VesselBunkerProfile[];
@@ -1155,6 +1228,9 @@ function ProfileTabContent({
   ) => void;
   setSpeed: (field: "speedBallastKn" | "speedLadenKn", value: number) => void;
   copyNormalToEca: (fuelRole: FuelRole) => void;
+  fuelTypeOptions: Array<{ value: string; label: string }>;
+  getFuelType: (fuelRole: FuelRole, condition: FuelCondition) => number | null;
+  setFuelType: (fuelRole: FuelRole, condition: FuelCondition, fuelTypeId: number) => void;
 }) {
   const activeProfile = bunkerProfiles[activeProfileIndex];
 
@@ -1246,6 +1322,9 @@ function ProfileTabContent({
         getConsumption={getConsumption}
         setConsumption={setConsumption}
         copyNormalToEca={copyNormalToEca}
+        fuelTypeOptions={fuelTypeOptions}
+        getFuelType={getFuelType}
+        setFuelType={setFuelType}
       />
       <ConsumptionGrid
         fuelRole="SUB"
@@ -1257,6 +1336,9 @@ function ProfileTabContent({
         getConsumption={getConsumption}
         setConsumption={setConsumption}
         copyNormalToEca={copyNormalToEca}
+        fuelTypeOptions={fuelTypeOptions}
+        getFuelType={getFuelType}
+        setFuelType={setFuelType}
       />
     </div>
   );
@@ -1272,6 +1354,9 @@ function ConsumptionGrid({
   getConsumption,
   setConsumption,
   copyNormalToEca,
+  fuelTypeOptions,
+  getFuelType,
+  setFuelType,
 }: {
   fuelRole: FuelRole;
   rowTitle: string;
@@ -1291,6 +1376,9 @@ function ConsumptionGrid({
     value: number,
   ) => void;
   copyNormalToEca: (fuelRole: FuelRole) => void;
+  fuelTypeOptions: Array<{ value: string; label: string }>;
+  getFuelType: (fuelRole: FuelRole, condition: FuelCondition) => number | null;
+  setFuelType: (fuelRole: FuelRole, condition: FuelCondition, fuelTypeId: number) => void;
 }) {
   return (
     <div>
@@ -1325,6 +1413,9 @@ function ConsumptionGrid({
             getConsumption={getConsumption}
             setConsumption={setConsumption}
             isLast={condition === "ECA"}
+            fuelTypeOptions={fuelTypeOptions}
+            fuelTypeId={getFuelType(fuelRole, condition)}
+            setFuelType={setFuelType}
           />
         ))}
       </div>
@@ -1341,6 +1432,9 @@ function BunkerRow({
   getConsumption,
   setConsumption,
   isLast,
+  fuelTypeOptions,
+  fuelTypeId,
+  setFuelType,
 }: {
   fuelRole: FuelRole;
   condition: FuelCondition;
@@ -1359,13 +1453,25 @@ function BunkerRow({
     value: number,
   ) => void;
   isLast: boolean;
+  fuelTypeOptions: Array<{ value: string; label: string }>;
+  fuelTypeId: number | null;
+  setFuelType: (fuelRole: FuelRole, condition: FuelCondition, fuelTypeId: number) => void;
 }) {
   const border = isLast ? "border-b-0" : "";
 
   return (
     <>
       <Td className={border}>{conditionLabel}</Td>
-      <Td className={border}>{fuelLabel}</Td>
+      <Td className={border}>
+        <Select
+          size="small"
+          value={fuelTypeId ? String(fuelTypeId) : undefined}
+          options={fuelTypeOptions}
+          onChange={(value) => setFuelType(fuelRole, condition, Number(value))}
+          style={{ width: "100%", fontSize: 11 }}
+          popupMatchSelectWidth={false}
+        />
+      </Td>
       {activities.map((activity) => (
         <Td key={activity} className={border} numeric>
           <NumCell

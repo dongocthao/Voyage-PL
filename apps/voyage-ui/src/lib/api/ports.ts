@@ -10,6 +10,8 @@ export type PortMaster = {
   portNo?: number | null;
   timeZoneCode?: string | null;
   unlocode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   latitudeText?: string | null;
   longitudeText?: string | null;
   regionCode?: string | null;
@@ -24,8 +26,26 @@ export type PortLookup = {
   name?: string;
   country?: string;
   unlocode?: string | null;
+  timeZoneCode?: string | null;
+  portType?: string | null;
+  status?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   utcOffsetMin?: number | null;
+  lastUpdated?: string;
   isActive?: boolean;
+};
+
+export type CountryLookup = {
+  id: number;
+  code: string;
+  name: string;
+};
+
+export type PortTypeLookup = {
+  id: number;
+  code: string;
+  name: string;
 };
 
 async function requestPort(url: string, init?: RequestInit) {
@@ -54,6 +74,26 @@ export function getPort(id: string) {
   return requestPort(`${API_BASE_URL}/master-data/ports/${encodeURIComponent(id)}`);
 }
 
+export async function listCountries(query = "") {
+  const params = query ? `?q=${encodeURIComponent(query)}` : "";
+  const response = await fetch(`${API_BASE_URL}/master-data/countries${params}`);
+  const body = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    throw new Error(body?.message ?? `Country lookup failed with status ${response.status}`);
+  }
+  return body as CountryLookup[];
+}
+
+export async function listPortTypes(query = "") {
+  const params = query ? `?q=${encodeURIComponent(query)}` : "";
+  const response = await fetch(`${API_BASE_URL}/master-data/port-types${params}`);
+  const body = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    throw new Error(body?.message ?? `Port type lookup failed with status ${response.status}`);
+  }
+  return body as PortTypeLookup[];
+}
+
 export function savePort(port: PortMaster) {
   const { id, ...payload } = sanitizePort(port);
   const method = id ? "PUT" : "POST";
@@ -65,7 +105,6 @@ export function savePort(port: PortMaster) {
 
 function sanitizePort(port: PortMaster): PortMaster {
   return {
-    ...port,
     portName: port.portName.trim(),
     portType: cleanString(port.portType),
     countryName: cleanString(port.countryName),
@@ -73,6 +112,8 @@ function sanitizePort(port: PortMaster): PortMaster {
     portOperator: cleanString(port.portOperator),
     timeZoneCode: cleanString(port.timeZoneCode),
     unlocode: cleanString(port.unlocode),
+    latitude: cleanNumber(port.latitude),
+    longitude: cleanNumber(port.longitude),
     latitudeText: cleanString(port.latitudeText),
     longitudeText: cleanString(port.longitudeText),
     regionCode: cleanString(port.regionCode),

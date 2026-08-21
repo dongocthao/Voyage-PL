@@ -29,9 +29,13 @@ export type CargoLookup = {
   id: string;
   code?: string | null;
   name?: string;
+  cargoGroup?: string | null;
+  cargoClass?: string | null;
+  unNumber?: string | null;
   defaultUnit?: string;
   stowageFactor?: number;
   stowageFactorUnit?: string;
+  lastUpdated?: string;
   isActive?: boolean;
 };
 

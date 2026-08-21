@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "nest start --watch",
+    "dev:lan": "powershell -NoProfile -Command \"$env:HOST='0.0.0.0'; nest start --watch\"",
+    "dev:safe": "node scripts/start-dev-safe.cjs",
     "build": "nest build",
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",

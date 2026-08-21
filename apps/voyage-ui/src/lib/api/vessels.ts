@@ -40,6 +40,7 @@ export type VesselBunkerProfile = {
 
 export type VesselMaster = {
   id?: string;
+  vesselId?: string | null;
   mvName: string;
   imoNo?: string | null;
   callSign?: string | null;
@@ -135,6 +136,7 @@ export function saveVessel(vessel: VesselMaster) {
 function sanitizeVessel(vessel: VesselMaster): VesselMaster {
   return {
     ...vessel,
+    vesselId: cleanString(vessel.vesselId),
     mvName: vessel.mvName.trim(),
     imoNo: cleanString(vessel.imoNo),
     callSign: cleanString(vessel.callSign),

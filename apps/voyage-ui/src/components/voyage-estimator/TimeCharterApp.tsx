@@ -34,13 +34,21 @@ import {
   type TimeCharterSnapshotPayload,
 } from "@/lib/api/timeCharterSnapshots";
 import { listVessels } from "@/lib/api/vessels";
-import { VoyageApiError, type VoyageSnapshotResult } from "@/lib/api/voyageSnapshots";
+import {
+  VoyageApiError,
+  deleteEstimateSnapshot,
+  type VoyageSnapshotResult,
+} from "@/lib/api/voyageSnapshots";
 import {
   buildTimeCharterSnapshotPayload,
   mapTimeCharterSnapshotToRows,
 } from "./timeCharterSnapshotMapper";
 import { ToolbarCommandManager, type ToolbarCommand } from "./toolbarCommandManager";
-import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
+import {
+  createWorkspaceToolbarRegistration,
+  type RegisterWorkspaceToolbar,
+} from "@/components/workspace/workspaceToolbar";
+import { useWorkspaceDirtyTracker } from "@/components/workspace/useWorkspaceDirtyTracker";
 import { buildPortRotationSummary } from "./portRotationSummary";
 
 const portEditorWithInfo = (v: string, onChange: (value: string) => void) => (
@@ -56,8 +64,10 @@ const deliveryTimeText = (row: TcPortRow) =>
   row.type === "Redelivery" ? "Redelivery time" : "Delivery time";
 export default function TimeCharterApp({
   registerWorkspaceToolbar,
+  initialEstimateId,
 }: {
   registerWorkspaceToolbar?: RegisterWorkspaceToolbar;
+  initialEstimateId?: string;
 } = {}) {
   const head = useRowOps<TcCpRow>(tcHeadCp);
   const sub = useRowOps<TcCpRow>(tcSubCp);
@@ -83,6 +93,9 @@ export default function TimeCharterApp({
     | { status: "loaded"; message: string }
     | { status: "error"; message: string; details?: string[] }
   >({ status: "idle" });
+  const [cleanSignature, setCleanSignature] = useState("");
+  const { lifecycle, setLifecycle, isUserModified, resetUserModified, interactionProps } =
+    useWorkspaceDirtyTracker();
   const [routingSuez, setRoutingSuez] = useState(true);
   const [routingPanama, setRoutingPanama] = useState(true);
   const [routingKiel, setRoutingKiel] = useState(false);
@@ -99,13 +112,13 @@ export default function TimeCharterApp({
   const workspaceToolbarActionsRef = useRef<{
     resetSheet: () => void;
     deleteSheet: () => void;
-    save: () => void;
+    save: () => Promise<boolean>;
     load: () => void;
     clear: () => void;
   }>({
     resetSheet: () => undefined,
     deleteSheet: () => undefined,
-    save: () => undefined,
+    save: async () => false,
     load: () => undefined,
     clear: () => undefined,
   });
@@ -217,11 +230,42 @@ export default function TimeCharterApp({
       headMultiDuration: headMulti,
       subMultiDuration: subMulti,
     });
+  const buildSignature = (value: unknown) => JSON.stringify(value);
+  const currentSignature = buildSignature({
+    estimateId,
+    estimateFileId,
+    vesselId,
+    bunkerProfileId,
+    performanceMode,
+    routingSuez,
+    routingPanama,
+    routingKiel,
+    timeDisplayUnit,
+    timezoneDisplayMode,
+    headRows: head.rows,
+    subRows: sub.rows,
+    portRows: calculatedPortRows,
+    headMulti,
+    subMulti,
+    miscRevenueItems,
+    otherExpenseItems,
+  });
+  const isDirty =
+    lifecycle === "settled" &&
+    isUserModified &&
+    cleanSignature !== "" &&
+    currentSignature !== cleanSignature;
+
+  useEffect(() => {
+    if (cleanSignature) return;
+    setCleanSignature(currentSignature);
+    setLifecycle("settled");
+  }, [cleanSignature, currentSignature, setLifecycle]);
 
   const save = async () => {
     if (!sheetExists) {
       setSaveState({ status: "error", message: "Create a New Sheet before saving." });
-      return;
+      return false;
     }
 
     const validationDetails = validateTimeCharterForm(head.rows, sub.rows, port.rows);
@@ -231,7 +275,7 @@ export default function TimeCharterApp({
         message: "Please fix Time Charter inputs before saving.",
         details: validationDetails,
       });
-      return;
+      return false;
     }
 
     setSaveState({ status: "saving" });
@@ -244,17 +288,44 @@ export default function TimeCharterApp({
         updatedAt: response.updatedAt ?? new Date().toISOString(),
         updatedBy: response.updatedByName ?? "Admin",
       });
+      setCleanSignature(
+        buildSignature({
+          estimateId: response.estimateId,
+          estimateFileId: response.estimateFileId,
+          vesselId,
+          bunkerProfileId,
+          performanceMode,
+          routingSuez,
+          routingPanama,
+          routingKiel,
+          timeDisplayUnit,
+          timezoneDisplayMode,
+          headRows: head.rows,
+          subRows: sub.rows,
+          portRows: calculatedPortRows,
+          headMulti,
+          subMulti,
+          miscRevenueItems,
+          otherExpenseItems,
+        }),
+      );
       setSaveState({
         status: "saved",
         message: `Saved Time Charter estimate #${response.estimateId}. Profit USD ${response.result.profitUsd.toLocaleString("en-US")}`,
       });
+      setLifecycle("settled");
+      resetUserModified();
+      return true;
     } catch (error) {
       const formatted = formatError(error, "Save failed");
       setSaveState({ status: "error", message: formatted.message, details: formatted.details });
+      return false;
     }
   };
 
   const loadById = async (id: string) => {
+    setLifecycle("loading");
+    resetUserModified();
     setSaveState({ status: "loading" });
     try {
       const snapshot = await loadTimeCharterSnapshot(id);
@@ -279,11 +350,35 @@ export default function TimeCharterApp({
         updatedAt: snapshot.header.updatedAt ?? "",
         updatedBy: snapshot.header.updatedByName ?? "Admin",
       });
+      setCleanSignature(
+        buildSignature({
+          estimateId: snapshot.header.estimateId,
+          estimateFileId: snapshot.header.estimateFileId,
+          vesselId: snapshot.header.vesselId,
+          bunkerProfileId: snapshot.header.bunkerProfileId,
+          performanceMode: snapshot.header.performanceMode ?? "FULL",
+          routingSuez: snapshot.header.routingSuez ?? true,
+          routingPanama: snapshot.header.routingPanama ?? true,
+          routingKiel: snapshot.header.routingKiel ?? false,
+          timeDisplayUnit: snapshot.header.timeDisplayUnit ?? "DAYS",
+          timezoneDisplayMode: snapshot.header.timezoneDisplayMode ?? "PORT_LOCAL",
+          headRows: mapped.headCpRows,
+          subRows: mapped.subCpRows,
+          portRows: calculatePortSchedule(mapped.portRows),
+          headMulti: mapped.headMultiDuration,
+          subMulti: mapped.subMultiDuration,
+          miscRevenueItems,
+          otherExpenseItems,
+        }),
+      );
       setSaveState({
         status: "loaded",
         message: `Loaded Time Charter estimate #${snapshot.header.estimateId ?? id}.`,
       });
+      setLifecycle("settled");
+      resetUserModified();
     } catch (error) {
+      setLifecycle("error");
       const formatted = formatError(error, "Load failed");
       setSaveState({ status: "error", message: formatted.message, details: formatted.details });
     }
@@ -303,12 +398,14 @@ export default function TimeCharterApp({
   };
 
   useEffect(() => {
-    const routeEstimateId = new URLSearchParams(window.location.search).get("estimateId")?.trim();
+    const routeEstimateId =
+      initialEstimateId?.trim() ||
+      new URLSearchParams(window.location.search).get("estimateId")?.trim();
     if (!routeEstimateId || routeEstimateLoadRef.current === routeEstimateId) return;
 
     routeEstimateLoadRef.current = routeEstimateId;
     void loadById(routeEstimateId);
-  }, []);
+  }, [initialEstimateId]);
 
   const resetSheet = () => {
     head.setRows(tcHeadCp);
@@ -327,9 +424,32 @@ export default function TimeCharterApp({
     setOtherExpenseItems([]);
     setSheetExists(true);
     setSaveState({ status: "idle" });
+    setCleanSignature(
+      buildSignature({
+        estimateId: undefined,
+        estimateFileId: undefined,
+        vesselId: undefined,
+        bunkerProfileId: undefined,
+        performanceMode: "FULL",
+        routingSuez: true,
+        routingPanama: true,
+        routingKiel: false,
+        timeDisplayUnit: "DAYS",
+        timezoneDisplayMode: "PORT_LOCAL",
+        headRows: tcHeadCp,
+        subRows: tcSubCp,
+        portRows: calculatePortSchedule(tcPortData),
+        headMulti: false,
+        subMulti: false,
+        miscRevenueItems: [],
+        otherExpenseItems: [],
+      }),
+    );
+    setLifecycle("settled");
+    resetUserModified();
   };
 
-  const deleteSheet = () => {
+  const clearSheetState = () => {
     head.setRows([]);
     sub.setRows([]);
     port.setRows([]);
@@ -339,6 +459,26 @@ export default function TimeCharterApp({
     setAuditState({ updatedAt: "", updatedBy: "Admin" });
     setSheetExists(false);
     setSaveState({ status: "idle" });
+    setCleanSignature("");
+    setLifecycle("settled");
+    resetUserModified();
+  };
+
+  const deleteSheet = async () => {
+    if (!estimateId) {
+      clearSheetState();
+      return;
+    }
+    try {
+      await deleteEstimateSnapshot(estimateId);
+      clearSheetState();
+      setSaveState({ status: "loaded", message: `Estimate ${estimateId} deleted.` });
+    } catch (error) {
+      setSaveState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Estimate delete failed.",
+      });
+    }
   };
 
   const handleToolbarCommand = (command: ToolbarCommand) => {
@@ -353,7 +493,7 @@ export default function TimeCharterApp({
       return;
     }
     if (command === "delete") {
-      deleteSheet();
+      void deleteSheet();
       return;
     }
     if (command === "save" || command === "saveAs") {
@@ -371,29 +511,41 @@ export default function TimeCharterApp({
   workspaceToolbarActionsRef.current = {
     resetSheet,
     deleteSheet,
-    save: () => void save(),
+    save,
     load: () => void load(),
     clear: () => setSaveState({ status: "idle" }),
   };
 
   useLayoutEffect(() => {
-    registerWorkspaceToolbar?.({
-      hasSheet: sheetExists,
-      hasEstimate: Boolean(estimateId),
-      execute: {
-        new: () => workspaceToolbarActionsRef.current.resetSheet(),
-        delete: () => workspaceToolbarActionsRef.current.deleteSheet(),
-        save: () => workspaceToolbarActionsRef.current.save(),
-        saveAs: () => workspaceToolbarActionsRef.current.save(),
-        open: () => workspaceToolbarActionsRef.current.load(),
-        reload: () => workspaceToolbarActionsRef.current.load(),
-        undo: () => workspaceToolbarActionsRef.current.clear(),
-        increase: () => workspaceToolbarActionsRef.current.clear(),
-        decrease: () => workspaceToolbarActionsRef.current.clear(),
-        options: () => workspaceToolbarActionsRef.current.clear(),
-      },
-    });
-  }, [estimateId, registerWorkspaceToolbar, sheetExists]);
+    registerWorkspaceToolbar?.(
+      createWorkspaceToolbarRegistration({
+        hasSheet: sheetExists,
+        hasEstimate: Boolean(estimateId),
+        isDirty,
+        isUserModified,
+        lifecycle,
+        actions: {
+          onNew: () => workspaceToolbarActionsRef.current.resetSheet(),
+          onDelete: () => workspaceToolbarActionsRef.current.deleteSheet(),
+          onSave: () => workspaceToolbarActionsRef.current.save(),
+          onSaveAs: () => workspaceToolbarActionsRef.current.save(),
+          onOpen: () => workspaceToolbarActionsRef.current.load(),
+          onReload: () => workspaceToolbarActionsRef.current.load(),
+          onUndo: () => workspaceToolbarActionsRef.current.clear(),
+          onIncrease: () => workspaceToolbarActionsRef.current.clear(),
+          onDecrease: () => workspaceToolbarActionsRef.current.clear(),
+          onOptions: () => workspaceToolbarActionsRef.current.clear(),
+        },
+      }),
+    );
+  }, [
+    estimateId,
+    isDirty,
+    isUserModified,
+    lifecycle,
+    registerWorkspaceToolbar,
+    sheetExists,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -443,6 +595,7 @@ export default function TimeCharterApp({
       lastUpdatedAt={auditState.updatedAt}
       lastUpdatedBy={auditState.updatedBy}
     >
+      <div {...interactionProps}>
       {(apiResult ||
         saveState.status === "saved" ||
         saveState.status === "loaded" ||
@@ -715,6 +868,7 @@ export default function TimeCharterApp({
           summaryText: tcSummaryText,
         }}
       />
+      </div>
     </EstimatorShell>
   );
 }

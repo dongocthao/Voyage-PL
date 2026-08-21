@@ -1,9 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Anchor, Save, Trash2, X } from "lucide-react";
 import { Button, Checkbox, ConfigProvider, Input, Select } from "antd";
 import { StyleProvider } from "@ant-design/cssinjs";
 import { VE_COLORS, VE_FONT_FAMILY, veTheme } from "@/components/voyage-estimator/theme";
-import { savePort, type PortMaster } from "@/lib/api/ports";
+import {
+  getPort,
+  listCountries,
+  listPortTypes,
+  listPorts,
+  savePort,
+  type PortMaster,
+} from "@/lib/api/ports";
 
 type FormErrors = Record<string, string>;
 
@@ -14,7 +21,7 @@ type CoordinateState = {
   decimal: string;
 };
 
-type PortFormState = PortMaster & {
+type PortFormState = Omit<PortMaster, "latitude" | "longitude"> & {
   masterPort: string;
   status: "Open" | "Inactive";
   daylightSavingTime: boolean;
@@ -22,7 +29,7 @@ type PortFormState = PortMaster & {
   longitude: CoordinateState;
 };
 
-const COUNTRY_OPTIONS = [
+const FALLBACK_COUNTRY_OPTIONS = [
   "Philippines",
   "Singapore",
   "China",
@@ -33,7 +40,7 @@ const COUNTRY_OPTIONS = [
   "Malaysia",
 ].map((value) => ({ value, label: value }));
 
-const PORT_TYPE_OPTIONS = ["Standard Port", "Berth", "Anchorage", "Terminal", "River Port"].map(
+const FALLBACK_PORT_TYPE_OPTIONS = ["Standard Port", "Berth", "Anchorage", "Terminal", "River Port"].map(
   (value) => ({ value, label: value }),
 );
 
@@ -137,6 +144,41 @@ function coordinateFromText(value: string | null | undefined, fallbackIndicator:
   };
 }
 
+function trimTrailingZeros(value: number, maxFractionDigits = 6) {
+  return value
+    .toFixed(maxFractionDigits)
+    .replace(/\.?0+$/, "");
+}
+
+function coordinateFromDecimal(
+  value: number | null | undefined,
+  axis: "lat" | "lon",
+  fallbackIndicator: string,
+): CoordinateState | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+
+  const absolute = Math.abs(value);
+  const degrees = Math.trunc(absolute);
+  const minutes = (absolute - degrees) * 60;
+  const indicator =
+    axis === "lat"
+      ? value < 0
+        ? "S"
+        : "N"
+      : value < 0
+        ? "W"
+        : "E";
+
+  return {
+    degrees: String(degrees),
+    minutes: trimTrailingZeros(minutes),
+    indicator: indicator || fallbackIndicator,
+    decimal: trimTrailingZeros(value),
+  };
+}
+
 function deriveCoordinateText(coord: CoordinateState, axis: "lat" | "lon") {
   const decimal = coord.decimal.trim();
   if (decimal) {
@@ -156,11 +198,38 @@ function deriveCoordinateText(coord: CoordinateState, axis: "lat" | "lon") {
   return `${degrees || "0"} ${minutes || "0"} ${indicator}`;
 }
 
+function deriveCoordinateDecimal(coord: CoordinateState, axis: "lat" | "lon") {
+  const decimal = coord.decimal.trim();
+  if (decimal) {
+    const parsed = Number(decimal);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  const degrees = Number(coord.degrees.trim());
+  const minutes = Number(coord.minutes.trim());
+  if (!Number.isFinite(degrees) && !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  const degreePart = Number.isFinite(degrees) ? degrees : 0;
+  const minutePart = Number.isFinite(minutes) ? minutes : 0;
+  const absolute = degreePart + minutePart / 60;
+  const indicator = (coord.indicator || (axis === "lat" ? "N" : "E")).toUpperCase();
+  const negative = axis === "lat" ? indicator === "S" : indicator === "W";
+  return negative ? -absolute : absolute;
+}
+
 function buildPortState(port?: Partial<PortMaster> | null): PortFormState {
   const state = emptyPortState();
   if (!port) {
     return state;
   }
+  const latitudeFromText = coordinateFromText(port.latitudeText, "N");
+  const longitudeFromText = coordinateFromText(port.longitudeText, "E");
+  const latitudeFromDecimal = coordinateFromDecimal(port.latitude, "lat", "N");
+  const longitudeFromDecimal = coordinateFromDecimal(port.longitude, "lon", "E");
+  const latitudeDecimalFromText = deriveCoordinateDecimal(latitudeFromText, "lat");
+  const longitudeDecimalFromText = deriveCoordinateDecimal(longitudeFromText, "lon");
   return {
     ...state,
     ...port,
@@ -185,9 +254,40 @@ function buildPortState(port?: Partial<PortMaster> | null): PortFormState {
       typeof port.dstGmtOffset === "number" && typeof port.stdGmtOffset === "number"
         ? port.dstGmtOffset !== port.stdGmtOffset
         : port.dstGmtOffset !== null && port.dstGmtOffset !== undefined,
-    latitude: coordinateFromText(port.latitudeText, "N"),
-    longitude: coordinateFromText(port.longitudeText, "E"),
+    latitude:
+      latitudeFromDecimal ??
+      {
+        ...latitudeFromText,
+        decimal:
+          latitudeDecimalFromText !== null
+            ? trimTrailingZeros(latitudeDecimalFromText)
+            : latitudeFromText.decimal,
+      },
+    longitude:
+      longitudeFromDecimal ??
+      {
+        ...longitudeFromText,
+        decimal:
+          longitudeDecimalFromText !== null
+            ? trimTrailingZeros(longitudeDecimalFromText)
+            : longitudeFromText.decimal,
+      },
   };
+}
+
+function mergeOptions(
+  base: Array<{ value: string; label: string }>,
+  values: Array<string | null | undefined>,
+) {
+  const map = new Map(base.map((item) => [item.value, item]));
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (!trimmed) continue;
+    if (!map.has(trimmed)) {
+      map.set(trimmed, { value: trimmed, label: trimmed });
+    }
+  }
+  return [...map.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function parseWholeNumber(value: string) {
@@ -237,7 +337,7 @@ function validateCoordinate(
   }
 
   const parsedDegrees = parseWholeNumber(degrees);
-  const parsedMinutes = parseWholeNumber(minutes);
+  const parsedMinutes = parseDecimalNumber(minutes);
   if (
     typeof parsedDegrees !== "number" ||
     typeof parsedMinutes !== "number" ||
@@ -308,6 +408,8 @@ function mapPortPayload(port: PortFormState): PortMaster {
     portNo: port.portNo ?? null,
     timeZoneCode: port.timeZoneCode?.trim() || null,
     unlocode: port.unlocode?.trim().toUpperCase() || null,
+    latitude: deriveCoordinateDecimal(port.latitude, "lat"),
+    longitude: deriveCoordinateDecimal(port.longitude, "lon"),
     latitudeText: deriveCoordinateText(port.latitude, "lat"),
     longitudeText: deriveCoordinateText(port.longitude, "lon"),
     regionCode: port.regionCode ?? null,
@@ -320,15 +422,20 @@ function mapPortPayload(port: PortFormState): PortMaster {
 
 export function NewPortForm({
   embedded = false,
+  initialPortId,
   onClose,
 }: {
   embedded?: boolean;
+  initialPortId?: string;
   onClose?: () => void;
 }) {
   const [port, setPort] = useState<PortFormState>(() => buildPortState());
   const [errors, setErrors] = useState<FormErrors>({});
   const [message, setMessage] = useState("Ready");
   const [saving, setSaving] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [countryOptions, setCountryOptions] = useState(FALLBACK_COUNTRY_OPTIONS);
+  const [portTypeOptions, setPortTypeOptions] = useState(FALLBACK_PORT_TYPE_OPTIONS);
 
   const selectClassName = useMemo(
     () =>
@@ -355,6 +462,81 @@ export function NewPortForm({
       },
     }));
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadInitialState = async () => {
+      setInitializing(true);
+      try {
+        const [countries, portTypes, portRows] = await Promise.all([
+          listCountries().catch(() => []),
+          listPortTypes().catch(() => []),
+          listPorts(),
+        ]);
+
+        if (!cancelled) {
+          setCountryOptions(mergeOptions(FALLBACK_COUNTRY_OPTIONS, countries.map((item) => item.name)));
+          setPortTypeOptions(mergeOptions(FALLBACK_PORT_TYPE_OPTIONS, portTypes.map((item) => item.name)));
+        }
+
+        if (initialPortId) {
+          const loaded = await getPort(initialPortId);
+          if (!cancelled) {
+            setPort(buildPortState(loaded));
+            setErrors({});
+            setMessage(`Loaded ${loaded.portName}`);
+            setCountryOptions((current) =>
+              loaded.countryName ? mergeOptions(current, [loaded.countryName]) : current,
+            );
+            setPortTypeOptions((current) =>
+              loaded.portType ? mergeOptions(current, [loaded.portType]) : current,
+            );
+          }
+          return;
+        }
+
+        const firstActive = portRows.find((row) => row.isActive !== false) ?? portRows[0];
+        if (!firstActive?.id) {
+          if (!cancelled) {
+            setPort(buildPortState());
+            setErrors({});
+            setMessage("No port master data found.");
+          }
+          return;
+        }
+
+        const loaded = await getPort(firstActive.id);
+        if (!cancelled) {
+          setPort(buildPortState(loaded));
+          setErrors({});
+          setMessage(`Loaded ${loaded.portName}`);
+          setCountryOptions((current) =>
+            loaded.countryName ? mergeOptions(current, [loaded.countryName]) : current,
+          );
+          setPortTypeOptions((current) =>
+            loaded.portType ? mergeOptions(current, [loaded.portType]) : current,
+          );
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPort(buildPortState());
+          setErrors({});
+          setMessage(error instanceof Error ? error.message : "Failed to load port.");
+        }
+      } finally {
+        if (!cancelled) {
+          setInitializing(false);
+        }
+      }
+    };
+
+    void loadInitialState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialPortId]);
 
   const clearForm = () => {
     setPort(buildPortState());
@@ -489,7 +671,7 @@ export function NewPortForm({
                     value={port.countryName || undefined}
                     status={errors.countryName ? "error" : ""}
                     className={selectClassName}
-                    options={COUNTRY_OPTIONS}
+                    options={countryOptions}
                     onChange={(value) => setField("countryName", value)}
                   />
                   <span />
@@ -518,7 +700,7 @@ export function NewPortForm({
                     value={port.portType || undefined}
                     status={errors.portType ? "error" : ""}
                     className={selectClassName}
-                    options={PORT_TYPE_OPTIONS}
+                    options={portTypeOptions}
                     onChange={(value) => setField("portType", value)}
                   />
                   <span />
@@ -655,10 +837,10 @@ export function NewPortForm({
                   <Button size="small" className="w-24" onClick={clearForm}>
                     Add
                   </Button>
-                  <Button size="small" className="w-24" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => void handleDelete()} disabled={saving}>
+                  <Button size="small" className="w-24" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => void handleDelete()} disabled={saving || initializing}>
                     Delete
                   </Button>
-                  <Button size="small" type="primary" className="w-24" icon={<Save className="h-3.5 w-3.5" />} onClick={() => void handleSave()} loading={saving}>
+                  <Button size="small" type="primary" className="w-24" icon={<Save className="h-3.5 w-3.5" />} onClick={() => void handleSave()} loading={saving} disabled={initializing}>
                     Save
                   </Button>
                   <Button

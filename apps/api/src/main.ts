@@ -22,7 +22,10 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
-  await app.listen(process.env.PORT ? Number(process.env.PORT) : 3001);
+  await app.listen(
+    process.env.PORT ? Number(process.env.PORT) : 3001,
+    process.env.HOST || '0.0.0.0',
+  );
 }
 
 void bootstrap();
@@ -41,12 +44,14 @@ function allowedOrigins() {
         'http://localhost:5194',
         'http://127.0.0.1:5194',
       ];
+  const localOriginPattern =
+    /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i;
 
   return (
     origin: string | undefined,
     callback: (error: Error | null, allow?: boolean) => void,
   ) => {
-    if (!origin || origins.includes(origin)) {
+    if (!origin || origins.includes(origin) || localOriginPattern.test(origin)) {
       callback(null, true);
       return;
     }

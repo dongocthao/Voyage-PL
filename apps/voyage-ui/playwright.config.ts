@@ -1,0 +1,11 @@
+import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./tmp",
+  use: {
+    browserName: "chromium",
+    channel: "chrome",
+    headless: true,
+    viewport: { width: 1600, height: 1000 },
+  },
+});

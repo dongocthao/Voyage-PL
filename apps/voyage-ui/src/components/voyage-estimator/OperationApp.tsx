@@ -33,6 +33,8 @@ import LoadableQuantityApp from "./LoadableQuantityApp";
 import FreightSimulatorApp from "./FreightSimulatorApp";
 import BunkerSimulatorApp from "./BunkerSimulatorApp";
 import LaytimeCalculatorApp from "./LaytimeCalculatorApp";
+import PortActivitiesDialog, { type PortActivitySummary } from "./PortActivitiesDialog";
+import type { FreightSimulationResponse } from "@/lib/api/estimateSimulations";
 import { LinerTermsForm, type LinerTermsContextRow } from "@/components/liner-terms-form";
 import {
   deleteOperationSnapshot,
@@ -42,8 +44,12 @@ import {
 } from "@/lib/api/operationSnapshots";
 import { OperationReportPreview } from "./OperationReportPreview";
 import { loadVoyageSnapshot } from "@/lib/api/voyageSnapshots";
-import type { LoadedVoyageSnapshot } from "@/lib/api/voyageSnapshots";
-import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
+import type { LoadedVoyageSnapshot, VoyageSnapshotPayload } from "@/lib/api/voyageSnapshots";
+import {
+  createWorkspaceToolbarRegistration,
+  type RegisterWorkspaceToolbar,
+} from "@/components/workspace/workspaceToolbar";
+import { useWorkspaceDirtyTracker } from "@/components/workspace/useWorkspaceDirtyTracker";
 import {
   opVessel,
   opSpeed,
@@ -158,15 +164,9 @@ const subCols: ColumnsType<OpFuelSubRow> = [
 
 function VesselPanel({
   status,
-  auditState,
 }: {
   status: string;
-  auditState: { updatedAt?: string; updatedBy?: string };
 }) {
-  const lastUpdateText = auditState.updatedAt
-    ? `${formatOperationAuditDateTime(auditState.updatedAt)}${auditState.updatedBy ? `, ${auditState.updatedBy}` : ""}`
-    : "";
-
   return (
     <section className="mb-2">
       <div className="mb-1 flex flex-wrap items-center gap-3">
@@ -177,9 +177,6 @@ function VesselPanel({
           <Tag color="cyan" className="!text-[11px]">
             To be Updated
           </Tag>
-          <span className="text-[11px]">
-            Last update : <b>{lastUpdateText}</b>
-          </span>
         </div>
       </div>
 
@@ -754,6 +751,7 @@ export default function OperationApp({
     status: "ONGOING",
   });
   const [activeReport, setActiveReport] = useState<OperationReportSelection | null>(null);
+  const [activePortActivitiesRow, setActivePortActivitiesRow] = useState<OpPortRow | null>(null);
   const [actualReports, setActualReports] = useState<Record<string, OperationLegReports>>({});
   const [startOp, setStartOp] = useState(false);
   const [modal, setModal] = useState<OperationModal | null>(null);
@@ -768,6 +766,29 @@ export default function OperationApp({
   const [miscRevenueOpen, setMiscRevenueOpen] = useState(false);
   const [otherExpenseItems, setOtherExpenseItems] = useState<OperationMiscItem[]>([]);
   const [miscRevenueItems, setMiscRevenueItems] = useState<OperationMiscItem[]>([]);
+  const [cleanSignature, setCleanSignature] = useState("");
+  const { lifecycle, setLifecycle, isUserModified, resetUserModified, interactionProps } =
+    useWorkspaceDirtyTracker();
+  const buildSignature = (value: unknown) => JSON.stringify(value);
+  const currentSignature = buildSignature({
+    operationId,
+    operationHeader,
+    cargoRows: cargo.rows,
+    portRows: port.rows,
+    bunkerRows,
+    actualReports,
+  });
+  const isDirty =
+    lifecycle === "settled" &&
+    isUserModified &&
+    cleanSignature !== "" &&
+    currentSignature !== cleanSignature;
+
+  useEffect(() => {
+    if (cleanSignature) return;
+    setCleanSignature(currentSignature);
+    setLifecycle("settled");
+  }, [cleanSignature, currentSignature, setLifecycle]);
 
   const validateForSave = () => {
     const details = validateOperationForm({
@@ -796,6 +817,8 @@ export default function OperationApp({
     }
 
     let active = true;
+    setLifecycle("loading");
+    resetUserModified();
     setSaveState({ status: "validated", message: `Loading estimate ${sourceEstimateId}...` });
     loadVoyageSnapshot(sourceEstimateId)
       .then((snapshot) => {
@@ -809,13 +832,25 @@ export default function OperationApp({
         port.setRows(mapped.portRows);
         port.setSelectedKey(null);
         setActualReports({});
+        setCleanSignature(
+          buildSignature({
+            operationHeader: mapped.header,
+            cargoRows: mapped.cargoRows,
+            portRows: mapped.portRows,
+            bunkerRows: opBunkerData,
+            actualReports: {},
+          }),
+        );
         setSaveState({
           status: "validated",
           message: `Loaded estimate ${sourceEstimateId} into Operation draft.`,
         });
+        setLifecycle("settled");
+        resetUserModified();
       })
       .catch((error) => {
         if (!active) return;
+        setLifecycle("error");
         setSaveState({
           status: "error",
           message:
@@ -832,33 +867,46 @@ export default function OperationApp({
 
   const saveCurrentOperation = async (mode: "save" | "saveAs" = "save") => {
     if (!validateForSave()) {
-      return;
+      return false;
     }
     try {
-      const response = await saveOperationSnapshot(
-        buildOperationSnapshotPayload({
-          operationId: mode === "saveAs" ? undefined : operationId,
-          header: operationHeader,
+      const payload = buildOperationSnapshotPayload({
+        operationId: mode === "saveAs" ? undefined : operationId,
+        header: operationHeader,
+        cargoRows: cargo.rows,
+        portRows: port.rows,
+        bunkerRows,
+        actualReports,
+      });
+      const response = await saveOperationSnapshot(payload);
+      setOperationId(response.operationId);
+      setAuditState({
+        updatedAt: response.updatedAt ?? new Date().toISOString(),
+        updatedBy: response.updatedByName ?? "Admin",
+      });
+      setCleanSignature(
+        buildSignature({
+          operationId: response.operationId,
+          operationHeader,
           cargoRows: cargo.rows,
           portRows: port.rows,
           bunkerRows,
           actualReports,
         }),
       );
-      setOperationId(response.operationId);
-      setAuditState({
-        updatedAt: response.updatedAt ?? new Date().toISOString(),
-        updatedBy: response.updatedByName ?? "Admin",
-      });
       setSaveState({
         status: "validated",
         message: `Operation ${response.operationId} saved.`,
       });
+      setLifecycle("settled");
+      resetUserModified();
+      return true;
     } catch (error) {
       setSaveState({
         status: "error",
         message: error instanceof Error ? error.message : "Operation save failed.",
       });
+      return false;
     }
   };
   const reloadCurrentOperation = async () => {
@@ -870,6 +918,8 @@ export default function OperationApp({
       return;
     }
     try {
+      setLifecycle("loading");
+      resetUserModified();
       const snapshot = await loadOperationSnapshot(operationId);
       applyLoadedOperationSnapshot(snapshot, cargo.setRows, port.setRows, setBunkerRows);
       setOperationHeader({
@@ -883,11 +933,30 @@ export default function OperationApp({
         updatedAt: snapshot.header.updatedAt ?? "",
         updatedBy: snapshot.header.updatedByName ?? "Admin",
       });
+      setCleanSignature(
+        buildSignature({
+          operationId: snapshot.header.operationId,
+          operationHeader: {
+            estimateId: snapshot.header.estimateId,
+            vesselId: snapshot.header.vesselId,
+            vesselName: snapshot.header.vesselName,
+            voyageNo: snapshot.header.voyageNo,
+            status: snapshot.header.status ?? "ONGOING",
+          },
+          cargoRows: snapshot.cargoRows,
+          portRows: snapshot.portRows,
+          bunkerRows: snapshot.bunkerRows,
+          actualReports: snapshot.reports ?? {},
+        }),
+      );
       setSaveState({
         status: "validated",
         message: `Operation ${operationId} loaded.`,
       });
+      setLifecycle("settled");
+      resetUserModified();
     } catch (error) {
+      setLifecycle("error");
       setSaveState({
         status: "error",
         message: error instanceof Error ? error.message : "Operation load failed.",
@@ -901,6 +970,8 @@ export default function OperationApp({
     setOperationId(initialOperationId);
     void (async () => {
       try {
+        setLifecycle("loading");
+        resetUserModified();
         const snapshot = await loadOperationSnapshot(initialOperationId);
         applyLoadedOperationSnapshot(snapshot, cargo.setRows, port.setRows, setBunkerRows);
         setOperationHeader({
@@ -915,11 +986,30 @@ export default function OperationApp({
           updatedBy: snapshot.header.updatedByName ?? "Admin",
         });
         setActualReports({});
+        setCleanSignature(
+          buildSignature({
+            operationId: snapshot.header.operationId,
+            operationHeader: {
+              estimateId: snapshot.header.estimateId,
+              vesselId: snapshot.header.vesselId,
+              vesselName: snapshot.header.vesselName,
+              voyageNo: snapshot.header.voyageNo,
+              status: snapshot.header.status ?? "ONGOING",
+            },
+            cargoRows: snapshot.cargoRows,
+            portRows: snapshot.portRows,
+            bunkerRows: snapshot.bunkerRows,
+            actualReports: snapshot.reports ?? {},
+          }),
+        );
         setSaveState({
           status: "validated",
           message: `Operation ${initialOperationId} loaded.`,
         });
+        setLifecycle("settled");
+        resetUserModified();
       } catch (error) {
+        setLifecycle("error");
         setSaveState({
           status: "error",
           message: error instanceof Error ? error.message : "Operation load failed.",
@@ -944,7 +1034,24 @@ export default function OperationApp({
     port.setSelectedKey(null);
     setBunkerRows(opBunkerData);
     setActualReports({});
+    setCleanSignature(
+      buildSignature({
+        operationHeader: {
+          estimateId: undefined,
+          vesselId: undefined,
+          vesselName: opVessel.mv,
+          voyageNo: "voyage1",
+          status: "ONGOING",
+        },
+        cargoRows: opCargoData,
+        portRows: opPortData,
+        bunkerRows: opBunkerData,
+        actualReports: {},
+      }),
+    );
     setSaveState({ status: "validated", message: "New Operation draft is ready." });
+    setLifecycle("settled");
+    resetUserModified();
   };
   const deleteCurrentOperation = async () => {
     if (!operationId) {
@@ -964,23 +1071,31 @@ export default function OperationApp({
   };
 
   useEffect(() => {
-    registerWorkspaceToolbar?.({
-      hasSheet: true,
-      hasEstimate: true,
-      execute: {
-        new: newOperation,
-        delete: deleteCurrentOperation,
-        save: () => void saveCurrentOperation("save"),
-        saveAs: () => void saveCurrentOperation("saveAs"),
-        open: () => void reloadCurrentOperation(),
-        reload: () => void reloadCurrentOperation(),
-        undo: () => setSaveState({ status: "idle" }),
-      },
-    });
+    registerWorkspaceToolbar?.(
+      createWorkspaceToolbarRegistration({
+        hasSheet: true,
+        hasEstimate: true,
+        isDirty,
+        isUserModified,
+        lifecycle,
+        actions: {
+          onNew: newOperation,
+          onDelete: deleteCurrentOperation,
+          onSave: () => saveCurrentOperation("save"),
+          onSaveAs: () => saveCurrentOperation("saveAs"),
+          onOpen: () => void reloadCurrentOperation(),
+          onReload: () => void reloadCurrentOperation(),
+          onUndo: () => setSaveState({ status: "idle" }),
+        },
+      }),
+    );
   }, [
     actualReports,
     bunkerRows,
     cargo.rows,
+    isDirty,
+    isUserModified,
+    lifecycle,
     operationHeader,
     operationId,
     port.rows,
@@ -1018,7 +1133,7 @@ export default function OperationApp({
     if (isMargin(row)) {
       return;
     }
-    ensureReportForPort("departure", row);
+    setActivePortActivitiesRow(row);
   };
   const activeLegReports = activeReport ? actualReports[activeReport.portKey] : undefined;
   const activeArrivalReport =
@@ -1047,7 +1162,7 @@ export default function OperationApp({
 
   const dateCell =
     (
-      onOpen: (row: OpPortRow) => void,
+      onOpen?: (row: OpPortRow) => void,
       options: { disableFirstRow?: boolean; showIconWhenBlank?: boolean } = {},
     ) =>
     (v: string, r: OpPortRow) => {
@@ -1060,10 +1175,10 @@ export default function OperationApp({
       return (
         <div className="flex items-center">
           <TxtCell value={v} />
-          {(v || options.showIconWhenBlank) && (
+          {onOpen && (v || options.showIconWhenBlank) && (
             <CalendarOutlined
               role="button"
-              aria-label="Open report"
+              aria-label="Open Port Activities"
               className="cursor-pointer"
               style={{ color: VE_COLORS.alert, fontSize: 12, marginRight: 2 }}
               onClick={() => onOpen(r)}
@@ -1144,7 +1259,7 @@ export default function OperationApp({
       title: "Arrival",
       dataIndex: "arrival",
       width: "8.9%",
-      render: dateCell(openArrivalReport, { disableFirstRow: true }),
+      render: dateCell(undefined, { disableFirstRow: true }),
     },
     {
       title: "Departure",
@@ -1165,6 +1280,57 @@ export default function OperationApp({
   const cargoCols = buildCargoCols(updateCargo, setLinerRowKey);
   const updateBunker = (key: string, field: keyof OpBunkerRow, value: string) =>
     setBunkerRows((rows) => rows.map((row) => (row.key === key ? { ...row, [field]: value } : row)));
+  const currentFreightSnapshot = (): VoyageSnapshotPayload =>
+    buildOperationFreightSimulationSnapshot({
+      header: operationHeader,
+      cargoRows: cargo.rows,
+      portRows: port.rows,
+      bunkerRows,
+    });
+  const applyFreightSimulation = (response?: FreightSimulationResponse) => {
+    if (!response?.adjustedSnapshot) return;
+    const adjustedByLine = new Map(
+      response.adjustedSnapshot.cargoLines.map((line) => [line.lineNo, line]),
+    );
+    cargo.setRows((rows) =>
+      rows.map((row) => {
+        const adjusted = adjustedByLine.get(Number(row.no));
+        if (!adjusted) return row;
+        const totalFreight =
+          adjusted.freight.freightType === "L"
+            ? adjusted.freight.freightLumpsum
+            : (adjusted.quantity ?? 0) * (adjusted.freight.freightRate ?? 0);
+        return {
+          ...row,
+          frt: formatAmount(adjusted.freight.freightRate ?? 0),
+          frtType: adjusted.freight.freightType,
+          frtLumpsum: formatAmount(adjusted.freight.freightLumpsum ?? 0),
+          totalFreight: formatAmount(totalFreight ?? 0),
+        };
+      }),
+    );
+    setModal(null);
+    setSaveState({
+      status: "validated",
+      message: `Freight simulation applied. Profit ${response.adjustedResult.profitUsd.toLocaleString("en-US")}`,
+    });
+  };
+  const applyPortActivitySummary = (rowKey: string, summary: PortActivitySummary) => {
+    port.setRows((rows) =>
+      rows.map((row) =>
+        row.key === rowKey
+          ? {
+              ...row,
+              ldRate: formatAmount(summary.channelDays),
+              idle: formatAmount(summary.portIdleDays),
+              working: formatAmount(summary.portWorkingDays),
+              arrival: summary.arrival,
+              departure: summary.departure,
+            }
+          : row,
+      ),
+    );
+  };
   const bunkerCols = buildBunkerCols(updateBunker);
   const cargoTotals = calculateOperationCargoTotals(cargo.rows);
   const portTotals = calculateOperationPortTotals(port.rows);
@@ -1191,7 +1357,7 @@ export default function OperationApp({
   ];
 
   const content = (
-    <div className="operation-app">
+    <div {...interactionProps} className="operation-app">
       <style>
         {`
           .operation-app .op-canal-checkbox .ant-checkbox-checked .ant-checkbox-inner,
@@ -1229,7 +1395,7 @@ export default function OperationApp({
           )}
         </div>
       )}
-      <VesselPanel status={operationHeader.status ?? "ONGOING"} auditState={auditState} />
+      <VesselPanel status={operationHeader.status ?? "ONGOING"} />
 
       <section className="mb-2">
         <div className="mb-1 flex flex-wrap items-center gap-3">
@@ -1489,30 +1655,34 @@ export default function OperationApp({
         </section>
       </div>
 
-      <ArrivalReportModal
-        open={activeReport?.kind === "arrival"}
-        report={activeArrivalReport}
-        onClose={() => setActiveReport(null)}
-        onFix={(report) => {
-          if (activeReport?.kind === "arrival") {
-            setFixedReport("arrival", activeReport.portKey, report);
-          }
-        }}
-      />
-      <DepartureReportModal
-        open={activeReport?.kind === "departure"}
-        report={activeDepartureReport}
-        onClose={() => setActiveReport(null)}
-        onFix={(report) => {
-          if (activeReport?.kind === "departure") {
-            setFixedReport("departure", activeReport.portKey, report);
-          }
-        }}
-        onOpenLaytime={() => setModal("laytime")}
-      />
+      {activePortActivitiesRow && (
+        <PortActivitiesDialog
+          operationId={operationId}
+          portRotationId={Number(activePortActivitiesRow.no) || 1}
+          portName={activePortActivitiesRow.port}
+          previousPortName={findPreviousOperationPortName(port.rows, activePortActivitiesRow.key)}
+          functionName={activePortActivitiesRow.type}
+          vesselName={operationHeader.vesselName}
+          voyageNo={operationHeader.voyageNo}
+          gmtOffset={extractOperationPortGmt(activePortActivitiesRow.port)}
+          arrival={activePortActivitiesRow.arrival}
+          departure={activePortActivitiesRow.departure}
+          portMarginDay={parseAmount(port.rows.find((row) => row.key === "margin")?.idle)}
+          onApplySummary={(summary) => applyPortActivitySummary(activePortActivitiesRow.key, summary)}
+          onClose={() => setActivePortActivitiesRow(null)}
+        />
+      )}
       <StartOperationModal open={startOp} onClose={() => setStartOp(false)} />
       {modal === "loadable" && <LoadableQuantityApp onClose={() => setModal(null)} />}
-      {modal === "freight" && <FreightSimulatorApp onClose={() => setModal(null)} />}
+      {modal === "freight" && (
+        <FreightSimulatorApp
+          onClose={() => setModal(null)}
+          snapshot={currentFreightSnapshot()}
+          currentProfitUsd={parseAmount(profitUsd)}
+          currentDurationDays={portTotals.durationDaysValue}
+          onApply={applyFreightSimulation}
+        />
+      )}
       {modal === "bunker" && <BunkerSimulatorApp onClose={() => setModal(null)} />}
       {modal === "laytime" && <LaytimeCalculatorApp onClose={() => setModal(null)} />}
       <Modal
@@ -1802,6 +1972,85 @@ function buildOperationSnapshotPayload({
   };
 }
 
+function buildOperationFreightSimulationSnapshot({
+  header,
+  cargoRows,
+  portRows,
+  bunkerRows,
+}: {
+  header: {
+    estimateId?: string;
+    vesselId?: string;
+    vesselName: string;
+    voyageNo: string;
+    status?: string;
+  };
+  cargoRows: OpCargoRow[];
+  portRows: OpPortRow[];
+  bunkerRows: OpBunkerRow[];
+}): VoyageSnapshotPayload {
+  const activePortRows = portRows.filter((row) => row.key !== "margin" && hasOperationPortInput(row));
+  const marginRow = portRows.find((row) => row.key === "margin");
+
+  return {
+    header: {
+      fileName: "Operation",
+      sheetName: header.voyageNo || "operation",
+      estimateId: header.estimateId,
+      voyageNo: header.voyageNo,
+      vesselId: header.vesselId,
+      vesselName: header.vesselName,
+      hireDay: parseKvAmount(opResultRows, "Hire / Day"),
+      hireAddCommPct: parseAmount(findKvValue(opResultRows, "H/Add Comm.")),
+      marginSeaDays: parseAmount(marginRow?.sea),
+      marginPortIdleDays: parseAmount(marginRow?.idle),
+    },
+    cargoLines: cargoRows
+      .filter(hasOperationCargoInput)
+      .map((row, index) => ({
+        lineNo: Number(row.no) || index + 1,
+        accountCompanyName: row.account,
+        cargoName: row.cargoName,
+        loadingPortId: normalizePortKey(row.loadingPort),
+        loadingPortName: row.loadingPort,
+        dischargingPortId: normalizePortKey(row.dischargingPort),
+        dischargingPortName: row.dischargingPort,
+        quantity: parseAmount(row.quantity),
+        unit: row.unit || "MT",
+        freight: {
+          freightRate: parseAmount(row.frt),
+          addCommPct: parseAmount(row.aComm),
+          brokeragePct: parseAmount(row.brkg),
+          freightTaxPct: parseAmount(row.frtTax),
+          freightType: row.frtType,
+          freightLumpsum: parseAmount(row.frtLumpsum),
+          linerCostAmount: parseAmount(row.linerTerm),
+        },
+      })),
+    portLegs: activePortRows.map((row, index) => ({
+      legNo: Number(row.no) || index + 1,
+      legType: mapOperationLegType(row.type),
+      portId: normalizePortKey(row.port),
+      portName: row.port,
+      distanceNm: parseAmount(row.distance),
+      ecaNm: parseAmount(row.eca),
+      wfPct: parseAmount(row.wf),
+      speedKn: parseAmount(row.spd),
+      seaDays: parseAmount(row.sea),
+      portIdleDays: parseAmount(row.idle),
+      portCharge: parseAmount(row.portCharge),
+      arrivalAt: normalizeDateTimeForSnapshot(row.arrival),
+      departureAt: normalizeDateTimeForSnapshot(row.departure),
+      cpTerm: {
+        ldRate: parseAmount(row.ldRate),
+        demurrage: parseAmount(row.dem),
+        despatch: parseAmount(row.des),
+      },
+    })),
+    bunkerProfile: buildOperationBunkerProfile(bunkerRows),
+  };
+}
+
 function applyLoadedOperationSnapshot(
   snapshot: OperationSnapshotPayload,
   setCargoRows: (rows: OpCargoRow[]) => void,
@@ -2006,6 +2255,140 @@ function calculateOperationBunkerTotals(rows: OpBunkerRow[]) {
     consumption: formatAmount(consumption),
     expenseValue: expense,
   };
+}
+
+function findPreviousOperationPortName(rows: OpPortRow[], activeKey: string) {
+  const activeIndex = rows.findIndex((row) => row.key === activeKey);
+  if (activeIndex <= 0) return "";
+  for (let index = activeIndex - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (row.key !== "margin" && row.port.trim()) return row.port;
+  }
+  return "";
+}
+
+function extractOperationPortGmt(portName: string) {
+  return portName.match(/\[([+-]\d{2}:\d{2})\]/)?.[1] ?? "";
+}
+
+function buildOperationBunkerProfile(bunkerRows: OpBunkerRow[]) {
+  const priceByFuel = new Map(
+    bunkerRows.map((row) => [row.type.toUpperCase(), parseAmount(row.price)]),
+  );
+  const fuelTypeIdByCode: Record<string, number> = {
+    VLSFO: 1,
+    ULSFO: 2,
+    MGO: 3,
+    MDO: 4,
+  };
+
+  return [
+    ...opFuelMain.flatMap((row) => {
+      const fuelCode = row.type.toUpperCase();
+      const fuelTypeId = fuelTypeIdByCode[fuelCode];
+      if (!fuelTypeId) return [];
+      return [
+        {
+          role: "MAIN" as const,
+          condition: row.main === "ECA" ? "ECA" as const : "NORMAL" as const,
+          activity: "BALLAST" as const,
+          fuelTypeId,
+          fuelCode,
+          consumptionMtDay: parseAmount(row.ballast),
+          pricePerMt: priceByFuel.get(fuelCode),
+        },
+        {
+          role: "MAIN" as const,
+          condition: row.main === "ECA" ? "ECA" as const : "NORMAL" as const,
+          activity: "LADEN" as const,
+          fuelTypeId,
+          fuelCode,
+          consumptionMtDay: parseAmount(row.laden),
+          pricePerMt: priceByFuel.get(fuelCode),
+        },
+        {
+          role: "MAIN" as const,
+          condition: "NORMAL" as const,
+          activity: "IDLE" as const,
+          fuelTypeId,
+          fuelCode,
+          consumptionMtDay: parseAmount(row.idle),
+          pricePerMt: priceByFuel.get(fuelCode),
+        },
+        {
+          role: "MAIN" as const,
+          condition: "NORMAL" as const,
+          activity: "WORK" as const,
+          fuelTypeId,
+          fuelCode,
+          consumptionMtDay: parseAmount(row.work),
+          pricePerMt: priceByFuel.get(fuelCode),
+        },
+      ];
+    }),
+    ...opFuelSub.flatMap((row) => {
+      const fuelCode = row.type.toUpperCase();
+      const fuelTypeId = fuelTypeIdByCode[fuelCode];
+      if (!fuelTypeId) return [];
+      return [
+        {
+          role: "SUB" as const,
+          condition: row.sub === "ECA" ? "ECA" as const : "NORMAL" as const,
+          activity: "SEA" as const,
+          fuelTypeId,
+          fuelCode,
+          consumptionMtDay: parseAmount(row.sea),
+          pricePerMt: priceByFuel.get(fuelCode),
+        },
+        {
+          role: "SUB" as const,
+          condition: "NORMAL" as const,
+          activity: "IDLE" as const,
+          fuelTypeId,
+          fuelCode,
+          consumptionMtDay: parseAmount(row.idle),
+          pricePerMt: priceByFuel.get(fuelCode),
+        },
+        {
+          role: "SUB" as const,
+          condition: "NORMAL" as const,
+          activity: "WORK" as const,
+          fuelTypeId,
+          fuelCode,
+          consumptionMtDay: parseAmount(row.work),
+          pricePerMt: priceByFuel.get(fuelCode),
+        },
+      ];
+    }),
+  ];
+}
+
+function mapOperationLegType(value: string): VoyageSnapshotPayload["portLegs"][number]["legType"] {
+  const normalized = value.toLowerCase();
+  if (normalized.startsWith("ballast")) return "BALLAST";
+  if (normalized.startsWith("load")) return "LOADING";
+  if (normalized.startsWith("dis")) return "DISCHARGE";
+  if (normalized.startsWith("bunker")) return "BUNKER";
+  if (normalized.startsWith("canal")) return "CANAL";
+  return "OTHER";
+}
+
+function normalizePortKey(value?: string) {
+  return (value ?? "")
+    .replace(/\s*\[[+-]\d{2}:\d{2}\]\s*/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeDateTimeForSnapshot(value?: string) {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(trimmed)) {
+    return `${trimmed.slice(0, 10)}T${trimmed.slice(11, 16)}:00.000Z`;
+  }
+  return undefined;
 }
 
 function buildOperationExpenseRows(

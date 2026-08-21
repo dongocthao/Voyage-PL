@@ -15,6 +15,7 @@ import { buildVoyageSnapshotPayload, mapVoyageSnapshotToRows } from "./voyageSna
 import type { FreightSimulationResponse } from "@/lib/api/estimateSimulations";
 import { findOperationByEstimateId } from "@/lib/api/operationSnapshots";
 import {
+  deleteEstimateSnapshot,
   loadVoyageReportSummary,
   loadVoyageSnapshot,
   saveVoyageSnapshot,
@@ -23,7 +24,11 @@ import {
   type VoyageSnapshotResult,
 } from "@/lib/api/voyageSnapshots";
 import { fetchBunkerProfiles, fetchLookup, type LookupItem } from "@/lib/api/masterData";
-import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
+import {
+  createWorkspaceToolbarRegistration,
+  type RegisterWorkspaceToolbar,
+} from "@/components/workspace/workspaceToolbar";
+import { useWorkspaceDirtyTracker } from "@/components/workspace/useWorkspaceDirtyTracker";
 
 type VoyageModal = "loadable" | "freight" | "bunker" | "analyzer";
 type SnapshotDetails = Pick<
@@ -70,9 +75,11 @@ const defaultHeaderState: VoyageHeaderState = {
 export default function VoyageEstimator({
   registerWorkspaceToolbar,
   onToOperation,
+  initialEstimateId,
 }: {
   registerWorkspaceToolbar?: RegisterWorkspaceToolbar;
   onToOperation?: (estimateId: string) => void;
+  initialEstimateId?: string;
 } = {}) {
   const [modal, setModal] = useState<VoyageModal | null>(null);
   const [remarkOpen, setRemarkOpen] = useState(false);
@@ -125,10 +132,13 @@ export default function VoyageEstimator({
     | { status: "loaded"; message: string }
     | { status: "error"; message: string; details?: string[] }
   >({ status: "idle" });
+  const [cleanSignature, setCleanSignature] = useState("");
+  const { lifecycle, setLifecycle, isUserModified, resetUserModified, interactionProps } =
+    useWorkspaceDirtyTracker();
   const workspaceToolbarActionsRef = useRef<{
     resetSheet: () => void;
     deleteSheet: () => void;
-    save: () => void;
+    save: () => Promise<boolean>;
     load: () => void;
     reload: () => void;
     toOperation: () => void;
@@ -136,7 +146,7 @@ export default function VoyageEstimator({
   }>({
     resetSheet: () => undefined,
     deleteSheet: () => undefined,
-    save: () => undefined,
+    save: async () => false,
     load: () => undefined,
     reload: () => undefined,
     toOperation: () => undefined,
@@ -312,7 +322,7 @@ export default function VoyageEstimator({
   const save = async () => {
     if (!sheetExists) {
       setSaveState({ status: "error", message: "Create a New Sheet before saving." });
-      return;
+      return false;
     }
 
     const validationDetails = validateVoyageForm({
@@ -326,7 +336,7 @@ export default function VoyageEstimator({
         message: "Please fix Voyage Estimation inputs before saving.",
         details: validationDetails,
       });
-      return;
+      return false;
     }
 
     setSaveState({ status: "saving" });
@@ -354,10 +364,21 @@ export default function VoyageEstimator({
         estimateName: current.estimateName ?? "voyage1",
         status: current.status ?? "DRAFT",
       }));
+      setCleanSignature(
+        buildSignature({
+          estimateId: response.estimateId,
+          estimateFileId: response.estimateFileId,
+          headerState,
+          cargoRows,
+          portRows,
+          snapshotDetails,
+        }),
+      );
       setSaveState({
         status: "saved",
         message: `Saved estimate #${response.estimateId}. Profit USD ${response.result.profitUsd.toLocaleString("en-US")}`,
       });
+      return true;
     } catch (error) {
       const formatted = formatError(error, "Save failed");
       setSaveState({
@@ -365,6 +386,7 @@ export default function VoyageEstimator({
         message: formatted.message,
         details: formatted.details,
       });
+      return false;
     }
   };
 
@@ -382,12 +404,58 @@ export default function VoyageEstimator({
       ...sanitizeSnapshotDetails(snapshotDetails),
     };
   };
+  const buildSignature = (value: unknown) => JSON.stringify(value);
+  const currentSignature = buildSignature({
+    estimateId,
+    estimateFileId,
+    headerState,
+    cargoRows,
+    portRows,
+    snapshotDetails,
+  });
+  const isDirty =
+    lifecycle === "settled" &&
+    isUserModified &&
+    cleanSignature !== "" &&
+    currentSignature !== cleanSignature;
+
+  useEffect(() => {
+    if (cleanSignature) return;
+    setCleanSignature(currentSignature);
+    setLifecycle("settled");
+  }, [cleanSignature, currentSignature]);
 
   const loadById = async (id: string) => {
+    setLifecycle("loading");
+    resetUserModified();
     setSaveState({ status: "loading" });
     try {
       const snapshot = await loadVoyageSnapshot(id);
       const mapped = mapVoyageSnapshotToRows(snapshot);
+      const nextSnapshotDetails = {
+        operationExpenseItems: snapshot.operationExpenseItems,
+        miscOperationExpenseItems: snapshot.miscOperationExpenseItems,
+        miscVoyageRevenueItems: snapshot.miscVoyageRevenueItems,
+      };
+      const nextHeaderState = {
+        ...defaultHeaderState,
+        vesselId: snapshot.header.vesselId,
+        estimateTypeCode:
+          snapshot.header.estimateTypeCode ?? defaultHeaderState.estimateTypeCode,
+        bunkerProfileId: snapshot.header.bunkerProfileId,
+        performanceMode: snapshot.header.performanceMode ?? "FULL",
+        remark: snapshot.header.remark,
+        voyageNo: snapshot.header.voyageNo ?? "",
+        routingSuez: snapshot.header.routingSuez ?? defaultHeaderState.routingSuez,
+        routingPanama: snapshot.header.routingPanama ?? defaultHeaderState.routingPanama,
+        routingKiel: snapshot.header.routingKiel ?? defaultHeaderState.routingKiel,
+        hireDay: snapshot.header.hireDay ?? defaultHeaderState.hireDay,
+        hireAddCommPct:
+          snapshot.header.hireAddCommPct ?? defaultHeaderState.hireAddCommPct,
+        timeDisplayUnit: snapshot.header.timeDisplayUnit ?? defaultHeaderState.timeDisplayUnit,
+        timezoneDisplayMode:
+          snapshot.header.timezoneDisplayMode ?? defaultHeaderState.timezoneDisplayMode,
+      };
       setCargoSeedRows(mapped.cargoRows);
       setPortSeedRows(mapped.portRows);
       setCargoRows(mapped.cargoRows);
@@ -404,33 +472,27 @@ export default function VoyageEstimator({
         estimateName: snapshot.header.sheetName ?? "voyage1",
         status: snapshot.header.status ?? "DRAFT",
       });
-      setSnapshotDetails({
-        operationExpenseItems: snapshot.operationExpenseItems,
-        miscOperationExpenseItems: snapshot.miscOperationExpenseItems,
-        miscVoyageRevenueItems: snapshot.miscVoyageRevenueItems,
-      });
-      setHeaderState((current) => ({
-        ...current,
-        vesselId: snapshot.header.vesselId,
-        estimateTypeCode: snapshot.header.estimateTypeCode ?? current.estimateTypeCode,
-        bunkerProfileId: snapshot.header.bunkerProfileId,
-        performanceMode: snapshot.header.performanceMode ?? "FULL",
-        remark: snapshot.header.remark,
-        voyageNo: snapshot.header.voyageNo ?? "",
-        routingSuez: snapshot.header.routingSuez ?? current.routingSuez,
-        routingPanama: snapshot.header.routingPanama ?? current.routingPanama,
-        routingKiel: snapshot.header.routingKiel ?? current.routingKiel,
-        hireDay: snapshot.header.hireDay ?? current.hireDay,
-        hireAddCommPct: snapshot.header.hireAddCommPct ?? current.hireAddCommPct,
-        timeDisplayUnit: snapshot.header.timeDisplayUnit ?? current.timeDisplayUnit,
-        timezoneDisplayMode: snapshot.header.timezoneDisplayMode ?? current.timezoneDisplayMode,
-      }));
+      setSnapshotDetails(nextSnapshotDetails);
+      setHeaderState(nextHeaderState);
+      setCleanSignature(
+        buildSignature({
+          estimateId: snapshot.header.estimateId,
+          estimateFileId: snapshot.header.estimateFileId,
+          headerState: nextHeaderState,
+          cargoRows: mapped.cargoRows,
+          portRows: mapped.portRows,
+          snapshotDetails: nextSnapshotDetails,
+        }),
+      );
+      setLifecycle("settled");
+      resetUserModified();
       setReloadKey((key) => key + 1);
       setSaveState({
         status: "loaded",
         message: `Loaded estimate #${snapshot.header.estimateId ?? id}.`,
       });
     } catch (error) {
+      setLifecycle("error");
       const formatted = formatError(error, "Load failed");
       setSaveState({
         status: "error",
@@ -456,12 +518,14 @@ export default function VoyageEstimator({
   };
 
   useEffect(() => {
-    const routeEstimateId = new URLSearchParams(window.location.search).get("estimateId")?.trim();
+    const routeEstimateId =
+      initialEstimateId?.trim() ||
+      new URLSearchParams(window.location.search).get("estimateId")?.trim();
     if (!routeEstimateId || routeEstimateLoadRef.current === routeEstimateId) return;
 
     routeEstimateLoadRef.current = routeEstimateId;
     void loadById(routeEstimateId);
-  }, []);
+  }, [initialEstimateId]);
 
   const loadReportSummary = async () => {
     if (!sheetExists) {
@@ -539,9 +603,21 @@ export default function VoyageEstimator({
     setSheetExists(true);
     setReloadKey((key) => key + 1);
     setSaveState({ status: "idle" });
+    setCleanSignature(
+      buildSignature({
+        estimateId: undefined,
+        estimateFileId: undefined,
+        headerState: defaultHeaderState,
+        cargoRows: cargoData,
+        portRows: portRotationData,
+        snapshotDetails: {},
+      }),
+    );
+    setLifecycle("settled");
+    resetUserModified();
   };
 
-  const deleteSheet = () => {
+  const clearSheetState = () => {
     setCargoSeedRows([]);
     setPortSeedRows([]);
     setCargoRows([]);
@@ -556,6 +632,24 @@ export default function VoyageEstimator({
     setSheetExists(false);
     setReloadKey((key) => key + 1);
     setSaveState({ status: "idle" });
+    setCleanSignature("");
+    setLifecycle("settled");
+    resetUserModified();
+  };
+
+  const deleteSheet = async () => {
+    if (!estimateId) {
+      clearSheetState();
+      return;
+    }
+    try {
+      await deleteEstimateSnapshot(estimateId);
+      clearSheetState();
+      setSaveState({ status: "loaded", message: `Estimate ${estimateId} deleted.` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Estimate delete failed.";
+      setSaveState({ status: "error", message });
+    }
   };
 
   const applyFreightSimulation = (response?: FreightSimulationResponse) => {
@@ -590,7 +684,7 @@ export default function VoyageEstimator({
   workspaceToolbarActionsRef.current = {
     resetSheet,
     deleteSheet,
-    save: () => void save(),
+    save,
     load: () => void load(),
     reload: () => void loadReportSummary(),
     toOperation: () => void toOperation(),
@@ -598,24 +692,36 @@ export default function VoyageEstimator({
   };
 
   useEffect(() => {
-    registerWorkspaceToolbar?.({
-      hasSheet: sheetExists,
-      hasEstimate: Boolean(estimateId),
-      execute: {
-        new: () => workspaceToolbarActionsRef.current.resetSheet(),
-        delete: () => workspaceToolbarActionsRef.current.deleteSheet(),
-        save: () => workspaceToolbarActionsRef.current.save(),
-        saveAs: () => workspaceToolbarActionsRef.current.save(),
-        open: () => workspaceToolbarActionsRef.current.load(),
-        reload: () => workspaceToolbarActionsRef.current.reload(),
-        toOperation: () => workspaceToolbarActionsRef.current.toOperation(),
-        undo: () => workspaceToolbarActionsRef.current.clear(),
-        increase: () => workspaceToolbarActionsRef.current.clear(),
-        decrease: () => workspaceToolbarActionsRef.current.clear(),
-        options: () => workspaceToolbarActionsRef.current.clear(),
-      },
-    });
-  }, [estimateId, registerWorkspaceToolbar, sheetExists]);
+    registerWorkspaceToolbar?.(
+      createWorkspaceToolbarRegistration({
+        hasSheet: sheetExists,
+        hasEstimate: Boolean(estimateId),
+        isDirty,
+        isUserModified,
+        lifecycle,
+        actions: {
+          onNew: () => workspaceToolbarActionsRef.current.resetSheet(),
+          onDelete: () => workspaceToolbarActionsRef.current.deleteSheet(),
+          onSave: () => workspaceToolbarActionsRef.current.save(),
+          onSaveAs: () => workspaceToolbarActionsRef.current.save(),
+          onOpen: () => workspaceToolbarActionsRef.current.load(),
+          onReload: () => workspaceToolbarActionsRef.current.reload(),
+          onToOperation: () => workspaceToolbarActionsRef.current.toOperation(),
+          onUndo: () => workspaceToolbarActionsRef.current.clear(),
+          onIncrease: () => workspaceToolbarActionsRef.current.clear(),
+          onDecrease: () => workspaceToolbarActionsRef.current.clear(),
+          onOptions: () => workspaceToolbarActionsRef.current.clear(),
+        },
+      }),
+    );
+  }, [
+    estimateId,
+    isDirty,
+    isUserModified,
+    lifecycle,
+    registerWorkspaceToolbar,
+    sheetExists,
+  ]);
 
   return (
     <EstimatorShell
@@ -626,6 +732,7 @@ export default function VoyageEstimator({
       lastUpdatedAt={auditState.updatedAt}
       lastUpdatedBy={auditState.updatedBy}
     >
+      <div {...interactionProps}>
       {(apiResult ||
         saveState.status === "saved" ||
         saveState.status === "loaded" ||
@@ -755,6 +862,8 @@ export default function VoyageEstimator({
         <FreightSimulatorApp
           onClose={() => setModal(null)}
           snapshot={currentSnapshot()}
+          currentProfitUsd={apiResult?.profitUsd}
+          currentDurationDays={apiResult?.totalDurationDays}
           onApply={applyFreightSimulation}
         />
       )}
@@ -783,6 +892,7 @@ export default function VoyageEstimator({
         data={reportData}
         autoPrintToken={reportPrintToken}
       />
+      </div>
     </EstimatorShell>
   );
 }

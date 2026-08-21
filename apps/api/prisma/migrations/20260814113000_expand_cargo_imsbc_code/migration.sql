@@ -1,0 +1,2 @@
+ALTER TABLE cargoes
+    ALTER COLUMN imsbc_code TYPE VARCHAR(150);

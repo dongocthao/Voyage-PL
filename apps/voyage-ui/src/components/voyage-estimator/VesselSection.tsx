@@ -4,6 +4,8 @@ import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined } from "@ant-design/icons";
 import { TxtCell, YCell } from "./cells";
 import { VE_COLORS } from "./theme";
+import { PortLookupSelect } from "./PortLookupSelect";
+import { RemoteLookupSelect } from "./RemoteLookupSelect";
 import {
   vesselData,
   fuelMainData,
@@ -13,7 +15,7 @@ import {
   type FuelMainRow,
   type FuelSubRow,
 } from "./mockData";
-import type { LookupItem } from "@/lib/api/masterData";
+import { fetchLookup, type LookupItem } from "@/lib/api/masterData";
 
 type PerformanceMode = "FULL" | "ECO" | "CUSTOM1" | "CUSTOM2" | "CUSTOM3";
 type PerformanceModeDetail = NonNullable<LookupItem["modes"]>[number];
@@ -277,21 +279,17 @@ function VesselBlock({
           </div>
         ))}
         <div className="flex items-center border-r" style={{ borderColor: VE_COLORS.border }}>
-          <Select
-            showSearch
-            allowClear
-            size="small"
-            variant="borderless"
-            value={vesselId}
-            onChange={(value) => onVesselIdChange?.(value ? String(value) : undefined)}
-            options={vessels.map((item) => ({ value: String(item.id), label: vesselLabel(item) }))}
-            placeholder={displayVessel.mv}
-            style={{ width: "100%", fontSize: 11 }}
-            filterOption={(input, option) =>
-              String(option?.label ?? "")
-                .toLowerCase()
-                .includes(input.toLowerCase())
+          <RemoteLookupSelect
+            value={vesselId ?? ""}
+            initialOptions={vessels}
+            onInputChange={() => undefined}
+            onResolvedChange={(_value, selected) =>
+              onVesselIdChange?.(selected ? String(selected.id) : undefined)
             }
+            fetchOptions={(query) => fetchLookup("vessels", query)}
+            formatOption={vesselLabel}
+            mapValue={(item) => String(item.id)}
+            sortOptions={false}
           />
         </div>
         <div className="border-r" style={{ borderColor: VE_COLORS.border }}>
@@ -334,21 +332,12 @@ function VesselBlock({
           <TxtCell value={voyageNo ?? estimateInfo.voyageNo} onChange={onVoyageNoChange} />
         </div>
         <div className="border-r" style={{ borderColor: VE_COLORS.border }}>
-          <Select
-            showSearch
-            allowClear
-            size="small"
-            variant="borderless"
-            value={openPosition || undefined}
-            onSearch={onOpenPositionChange}
-            onChange={(value) => onOpenPositionChange?.(value ?? "")}
-            options={ports.map((item) => ({ value: portLabel(item), label: portLabel(item) }))}
-            style={{ width: "100%", fontSize: 11 }}
-            filterOption={(input, option) =>
-              String(option?.label ?? "")
-                .toLowerCase()
-                .includes(input.toLowerCase())
-            }
+          <PortLookupSelect
+            value={openPosition || ""}
+            initialOptions={ports}
+            onInputChange={(value) => onOpenPositionChange?.(value)}
+            onResolvedChange={(value) => onOpenPositionChange?.(value)}
+            formatOption={portLabel}
           />
         </div>
       </div>

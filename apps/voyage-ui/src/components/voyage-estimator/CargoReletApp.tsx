@@ -28,6 +28,7 @@ import { VE_COLORS } from "./theme";
 import { useRowOps } from "./useRowOps";
 import { useResizableColumns } from "./useResizableColumns";
 import { buildPortRotationSummary, classifySeaStateByCargoFlow } from "./portRotationSummary";
+import { PortLookupSelect } from "./PortLookupSelect";
 import {
   reletCargoData,
   reletPortData,
@@ -35,10 +36,23 @@ import {
   type ReletCargoRow,
   type ReletPortRow,
 } from "./cargoReletData";
-import type { RegisterWorkspaceToolbar } from "@/components/workspace/workspaceToolbar";
-import { loadCargoReletSnapshot, saveCargoReletSnapshot } from "@/lib/api/cargoReletSnapshots";
+import {
+  createWorkspaceToolbarRegistration,
+  type RegisterWorkspaceToolbar,
+} from "@/components/workspace/workspaceToolbar";
+import { useWorkspaceDirtyTracker } from "@/components/workspace/useWorkspaceDirtyTracker";
+import type { FreightSimulationResponse } from "@/lib/api/estimateSimulations";
+import {
+  loadCargoReletSnapshot,
+  saveCargoReletSnapshot,
+  type CargoReletSnapshotPayload,
+} from "@/lib/api/cargoReletSnapshots";
 import { fetchLookup, type LookupItem } from "@/lib/api/masterData";
-import { VoyageApiError } from "@/lib/api/voyageSnapshots";
+import {
+  VoyageApiError,
+  deleteEstimateSnapshot,
+  type VoyageSnapshotPayload,
+} from "@/lib/api/voyageSnapshots";
 
 type CargoReletModal = "loadable" | "freight" | "analyzer";
 type ReletLinerTarget = { rowKey: string; side: "h" | "s" };
@@ -97,17 +111,12 @@ const portLookupCell =
   ) =>
   (value: string, row: ReletCargoRow) => (
     <div className="flex items-center">
-      <Select
-        showSearch
-        allowClear
-        size="small"
-        variant="borderless"
-        value={value || undefined}
-        onChange={(next) => update(row.key, field, next ?? "")}
-        onSearch={(next) => update(row.key, field, next)}
-        options={ports.map((item) => ({ value: portLabel(item), label: portLabel(item) }))}
-        filterOption={filterLookup}
-        style={{ width: "100%", fontSize: 11 }}
+      <PortLookupSelect
+        value={value}
+        initialOptions={ports}
+        onInputChange={(next) => update(row.key, field, next)}
+        onResolvedChange={(next) => update(row.key, field, next)}
+        formatOption={portLabel}
       />
       <InfoCircleOutlined style={{ color: VE_COLORS.titleBar, fontSize: 11 }} />
     </div>
@@ -319,24 +328,18 @@ const portRotationLookupCell =
     isMargin(row) ? (
       <span>{value}</span>
     ) : (
-      <Select
-        showSearch
-        allowClear
-        size="small"
-        variant="borderless"
-        value={value || undefined}
-        onChange={(next) => {
-          const port = next ?? "";
-          update(row.key, "port", port);
-          update(row.key, "timezone", resolvePortTimezoneFromValue(port, ports));
-        }}
-        onSearch={(next) => {
+      <PortLookupSelect
+        value={value}
+        initialOptions={ports}
+        onInputChange={(next) => {
           update(row.key, "port", next);
           update(row.key, "timezone", resolvePortTimezoneFromValue(next, ports));
         }}
-        options={ports.map((item) => ({ value: portLabel(item), label: portLabel(item) }))}
-        filterOption={filterLookup}
-        style={{ width: "100%", fontSize: 11 }}
+        onResolvedChange={(next) => {
+          update(row.key, "port", next);
+          update(row.key, "timezone", resolvePortTimezoneFromValue(next, ports));
+        }}
+        formatOption={portLabel}
       />
     );
 
@@ -538,8 +541,10 @@ const buildPortCols = (
 
 export default function CargoReletApp({
   registerWorkspaceToolbar,
+  initialEstimateId,
 }: {
   registerWorkspaceToolbar?: RegisterWorkspaceToolbar;
+  initialEstimateId?: string;
 } = {}) {
   const [modal, setModal] = useState<CargoReletModal | null>(null);
   const [linerTarget, setLinerTarget] = useState<ReletLinerTarget | null>(null);
@@ -562,16 +567,19 @@ export default function CargoReletApp({
     | { status: "loaded"; message: string }
     | { status: "error"; message: string; details?: string[] }
   >({ status: "idle" });
+  const [cleanSignature, setCleanSignature] = useState("");
+  const { lifecycle, setLifecycle, isUserModified, resetUserModified, interactionProps } =
+    useWorkspaceDirtyTracker();
   const workspaceToolbarActionsRef = useRef<{
     resetSheet: () => void;
     deleteSheet: () => void;
-    save: () => void;
+    save: () => Promise<boolean>;
     load: () => void;
     clear: () => void;
   }>({
     resetSheet: () => undefined,
     deleteSheet: () => undefined,
-    save: () => undefined,
+    save: async () => false,
     load: () => undefined,
     clear: () => undefined,
   });
@@ -625,6 +633,28 @@ export default function CargoReletApp({
   const linerTargetRow = linerTarget
     ? calculatedCargoRows.find((row) => row.key === linerTarget.rowKey) ?? null
     : null;
+  const buildSignature = (value: unknown) => JSON.stringify(value);
+  const currentSignature = buildSignature(
+    {
+      estimateId,
+      estimateFileId,
+      vesselId,
+      cargoRows: calculatedCargoRows,
+      portRows: calculatedPortRows,
+      otherResultAmount,
+    },
+  );
+  const isDirty =
+    lifecycle === "settled" &&
+    isUserModified &&
+    cleanSignature !== "" &&
+    currentSignature !== cleanSignature;
+
+  useEffect(() => {
+    if (cleanSignature) return;
+    setCleanSignature(currentSignature);
+    setLifecycle("settled");
+  }, [cleanSignature, currentSignature, setLifecycle]);
 
   useEffect(() => {
     let alive = true;
@@ -647,7 +677,7 @@ export default function CargoReletApp({
   const save = async () => {
     if (!sheetExists) {
       setSaveState({ status: "error", message: "Create a New Sheet before saving." });
-      return;
+      return false;
     }
 
     const validationDetails = validateCargoReletForm(calculatedCargoRows, calculatedPortRows);
@@ -657,7 +687,7 @@ export default function CargoReletApp({
         message: "Cargo Relet estimate input is invalid.",
         details: validationDetails,
       });
-      return;
+      return false;
     }
 
     setSaveState({ status: "saving", message: "Saving Cargo Relet estimate..." });
@@ -678,10 +708,23 @@ export default function CargoReletApp({
         updatedAt: response.updatedAt ?? new Date().toISOString(),
         updatedBy: response.updatedByName ?? "Admin",
       });
+      setCleanSignature(
+        buildSignature({
+          estimateId: response.estimateId,
+          estimateFileId: response.estimateFileId,
+          vesselId,
+          cargoRows: calculatedCargoRows,
+          portRows: calculatedPortRows,
+          otherResultAmount,
+        }),
+      );
       setSaveState({
         status: "saved",
         message: `Saved Cargo Relet estimate #${response.estimateId}.`,
       });
+      setLifecycle("settled");
+      resetUserModified();
+      return true;
     } catch (error) {
       setSaveState({
         status: "error",
@@ -693,10 +736,13 @@ export default function CargoReletApp({
                 .filter((message): message is string => Boolean(message))
             : undefined,
       });
+      return false;
     }
   };
 
   const loadById = async (id: string) => {
+    setLifecycle("loading");
+    resetUserModified();
     setSaveState({ status: "loading", message: `Loading Cargo Relet estimate #${id}...` });
     try {
       const snapshot = await loadCargoReletSnapshot(id);
@@ -713,11 +759,24 @@ export default function CargoReletApp({
         updatedBy: snapshot.header.updatedByName ?? "Admin",
       });
       setSheetExists(true);
+      setCleanSignature(
+        buildSignature({
+          estimateId: snapshot.header.estimateId ?? id,
+          estimateFileId: snapshot.header.estimateFileId,
+          vesselId: snapshot.header.vesselId,
+          cargoRows: rows.cargoRows,
+          portRows: rows.portRows,
+          otherResultAmount: rows.otherResultAmount || "0.0",
+        }),
+      );
       setSaveState({
         status: "loaded",
         message: `Loaded Cargo Relet estimate #${snapshot.header.estimateId ?? id}.`,
       });
+      setLifecycle("settled");
+      resetUserModified();
     } catch (error) {
+      setLifecycle("error");
       setSaveState({
         status: "error",
         message: error instanceof Error ? error.message : "Load failed.",
@@ -747,12 +806,14 @@ export default function CargoReletApp({
   };
 
   useEffect(() => {
-    const routeEstimateId = new URLSearchParams(window.location.search).get("estimateId")?.trim();
+    const routeEstimateId =
+      initialEstimateId?.trim() ||
+      new URLSearchParams(window.location.search).get("estimateId")?.trim();
     if (!routeEstimateId || routeEstimateLoadRef.current === routeEstimateId) return;
 
     routeEstimateLoadRef.current = routeEstimateId;
     void loadById(routeEstimateId);
-  }, []);
+  }, [initialEstimateId]);
 
   const resetSheet = () => {
     cargo.setRows(reletCargoData);
@@ -763,9 +824,55 @@ export default function CargoReletApp({
     setAuditState({ updatedAt: "", updatedBy: "Admin" });
     setSheetExists(true);
     setSaveState({ status: "idle" });
+    setCleanSignature(
+      buildSignature({
+        estimateId: undefined,
+        estimateFileId: undefined,
+        vesselId: undefined,
+        cargoRows: reletCargoData,
+        portRows: reletPortData,
+        otherResultAmount: "0.0",
+      }),
+    );
+    setLifecycle("settled");
+    resetUserModified();
   };
 
-  const deleteSheet = () => {
+  const currentFreightSnapshot = (): VoyageSnapshotPayload =>
+    cargoReletToVoyageSnapshot(
+      buildCargoReletSnapshotPayload({
+        header: { vesselId },
+        cargoRows: calculatedCargoRows,
+        portRows: calculatedPortRows,
+        otherResultAmount,
+      }),
+    );
+
+  const applyFreightSimulation = (response?: FreightSimulationResponse) => {
+    if (!response?.adjustedSnapshot) return;
+    const adjustedByLine = new Map(
+      response.adjustedSnapshot.cargoLines.map((line) => [line.lineNo, line]),
+    );
+    cargo.setRows((rows) =>
+      rows.map((row) => {
+        const adjusted = adjustedByLine.get(Number(row.no));
+        if (!adjusted) return row;
+        return {
+          ...row,
+          hFrt: formatAmount(adjusted.freight.freightRate ?? 0),
+          hFrtType: adjusted.freight.freightType,
+          hFrtLumpsum: formatAmount(adjusted.freight.freightLumpsum ?? 0),
+        };
+      }),
+    );
+    setModal(null);
+    setSaveState({
+      status: "loaded",
+      message: `Freight simulation applied. Profit ${response.adjustedResult.profitUsd.toLocaleString("en-US")}`,
+    });
+  };
+
+  const clearSheetState = () => {
     cargo.setRows([]);
     port.setRows([]);
     setEstimateId(undefined);
@@ -774,34 +881,66 @@ export default function CargoReletApp({
     setAuditState({ updatedAt: "", updatedBy: "Admin" });
     setSheetExists(false);
     setSaveState({ status: "idle" });
+    setCleanSignature("");
+    setLifecycle("settled");
+    resetUserModified();
+  };
+
+  const deleteSheet = async () => {
+    if (!estimateId) {
+      clearSheetState();
+      return;
+    }
+    try {
+      await deleteEstimateSnapshot(estimateId);
+      clearSheetState();
+      setSaveState({ status: "loaded", message: `Estimate ${estimateId} deleted.` });
+    } catch (error) {
+      setSaveState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Estimate delete failed.",
+      });
+    }
   };
 
   workspaceToolbarActionsRef.current = {
     resetSheet,
     deleteSheet,
-    save: () => void save(),
+    save,
     load: () => void load(),
     clear: () => setSaveState({ status: "idle" }),
   };
 
   useLayoutEffect(() => {
-    registerWorkspaceToolbar?.({
-      hasSheet: sheetExists,
-      hasEstimate: Boolean(estimateId),
-      execute: {
-        new: () => workspaceToolbarActionsRef.current.resetSheet(),
-        delete: () => workspaceToolbarActionsRef.current.deleteSheet(),
-        save: () => workspaceToolbarActionsRef.current.save(),
-        saveAs: () => workspaceToolbarActionsRef.current.save(),
-        open: () => workspaceToolbarActionsRef.current.load(),
-        reload: () => workspaceToolbarActionsRef.current.load(),
-        undo: () => workspaceToolbarActionsRef.current.clear(),
-        increase: () => workspaceToolbarActionsRef.current.clear(),
-        decrease: () => workspaceToolbarActionsRef.current.clear(),
-        options: () => workspaceToolbarActionsRef.current.clear(),
-      },
-    });
-  }, [estimateId, registerWorkspaceToolbar, sheetExists]);
+    registerWorkspaceToolbar?.(
+      createWorkspaceToolbarRegistration({
+        hasSheet: sheetExists,
+        hasEstimate: Boolean(estimateId),
+        isDirty,
+        isUserModified,
+        lifecycle,
+        actions: {
+          onNew: () => workspaceToolbarActionsRef.current.resetSheet(),
+          onDelete: () => workspaceToolbarActionsRef.current.deleteSheet(),
+          onSave: () => workspaceToolbarActionsRef.current.save(),
+          onSaveAs: () => workspaceToolbarActionsRef.current.save(),
+          onOpen: () => workspaceToolbarActionsRef.current.load(),
+          onReload: () => workspaceToolbarActionsRef.current.load(),
+          onUndo: () => workspaceToolbarActionsRef.current.clear(),
+          onIncrease: () => workspaceToolbarActionsRef.current.clear(),
+          onDecrease: () => workspaceToolbarActionsRef.current.clear(),
+          onOptions: () => workspaceToolbarActionsRef.current.clear(),
+        },
+      }),
+    );
+  }, [
+    estimateId,
+    isDirty,
+    isUserModified,
+    lifecycle,
+    registerWorkspaceToolbar,
+    sheetExists,
+  ]);
 
   return (
     <EstimatorShell
@@ -810,7 +949,7 @@ export default function CargoReletApp({
       lastUpdatedAt={auditState.updatedAt}
       lastUpdatedBy={auditState.updatedBy}
     >
-      <div className="cargo-relet-estimation">
+      <div {...interactionProps} className="cargo-relet-estimation">
       {saveState.status !== "idle" && (
         <Alert
           className="mb-2"
@@ -1034,7 +1173,15 @@ export default function CargoReletApp({
         }}
       />
       {modal === "loadable" && <LoadableQuantityApp onClose={() => setModal(null)} />}
-      {modal === "freight" && <FreightSimulatorApp onClose={() => setModal(null)} />}
+      {modal === "freight" && (
+        <FreightSimulatorApp
+          onClose={() => setModal(null)}
+          snapshot={currentFreightSnapshot()}
+          currentProfitUsd={parseAmount(resultPanel.profit)}
+          currentDurationDays={sum(calculatedPortRows.map((row) => parseAmount(row.sea) + parseAmount(row.idle) + parseAmount(row.working)))}
+          onApply={applyFreightSimulation}
+        />
+      )}
       {modal === "analyzer" && <AnalyzerApp onClose={() => setModal(null)} />}
       <Modal
         open={Boolean(linerTargetRow)}
@@ -1082,6 +1229,67 @@ export default function CargoReletApp({
       </div>
     </EstimatorShell>
   );
+}
+
+function cargoReletToVoyageSnapshot(
+  snapshot: CargoReletSnapshotPayload,
+): VoyageSnapshotPayload {
+  return {
+    header: {
+      fileName: snapshot.header.fileName,
+      sheetName: snapshot.header.sheetName,
+      estimateTypeCode: snapshot.header.estimateTypeCode,
+      vesselId: snapshot.header.vesselId,
+      marginSeaDays: snapshot.header.marginSeaDays,
+      marginPortIdleDays: snapshot.header.marginPortIdleDays,
+      routingSuez: snapshot.header.routingSuez,
+      routingPanama: snapshot.header.routingPanama,
+      routingKiel: snapshot.header.routingKiel,
+      timeDisplayUnit: snapshot.header.timeDisplayUnit,
+      timezoneDisplayMode: snapshot.header.timezoneDisplayMode,
+    },
+    cargoLines: snapshot.cargoLines.map((line) => ({
+      lineNo: line.lineNo,
+      accountCompanyId: line.accountCompanyId,
+      accountCompanyName: line.accountCompanyName,
+      cargoId: line.cargoId,
+      cargoName: line.cargoName,
+      loadingPortId: line.loadingPortId ?? normalizePortKey(line.loadingPortName),
+      loadingPortName: line.loadingPortName,
+      dischargingPortId: line.dischargingPortId ?? normalizePortKey(line.dischargingPortName),
+      dischargingPortName: line.dischargingPortName,
+      quantity: line.quantityMt,
+      unit: line.quantityUnit ?? "MT",
+      freight: {
+        freightRate: line.head.freightRate,
+        freightType: line.head.freightType === "L" ? "L" : "F",
+        freightLumpsum: line.head.freightLumpsum,
+        addCommPct: line.head.addCommPct,
+        brokeragePct: line.head.brokeragePct,
+        linerCostAmount: line.head.linerCostAmount,
+      },
+    })),
+    portLegs: snapshot.portLegs.map((leg) => ({
+      legNo: leg.legNo,
+      legType: leg.legType,
+      portId: leg.portId ?? normalizePortKey(leg.portName),
+      portName: leg.portName,
+      distanceNm: leg.distanceNm,
+      ecaNm: leg.ecaNm,
+      wfPct: leg.wfPct,
+      speedKn: leg.speedKn,
+      seaDays: leg.seaDays,
+      portIdleDays: leg.portIdleDays,
+      portCharge: leg.portCharge,
+      arrivalAt: leg.arrivalAt,
+      departureAt: leg.departureAt,
+      cpTerm: {
+        ldRate: leg.head.ldRate,
+        demurrage: leg.head.demurrage,
+        despatch: leg.head.despatch,
+      },
+    })),
+  };
 }
 
 function CargoReletResultPanel({
@@ -1495,6 +1703,10 @@ function normalizePortName(value: string | undefined) {
     .replace(/\s*\[[+-]\d{2}:\d{2}\]\s*/g, "")
     .trim()
     .toLowerCase();
+}
+
+function normalizePortKey(value: string | undefined) {
+  return normalizePortName(value).replace(/\s+/g, " ");
 }
 
 function resolvePortTimezone(portNameOrCoordinate: string) {

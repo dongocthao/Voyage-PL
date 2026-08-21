@@ -17,7 +17,9 @@ import { cargoData, type CargoRow } from "./mockData";
 import { useRowOps } from "./useRowOps";
 import { useResizableColumns } from "./useResizableColumns";
 import { LinerTermsForm, type LinerTermsContextRow } from "@/components/liner-terms-form";
-import type { LookupItem } from "@/lib/api/masterData";
+import { fetchLookup, type LookupItem } from "@/lib/api/masterData";
+import { PortLookupSelect } from "./PortLookupSelect";
+import { RemoteLookupSelect } from "./RemoteLookupSelect";
 
 type CargoField = keyof CargoRow;
 type CargoLookupKind = "companies" | "cargoes" | "ports" | "cpTerms";
@@ -37,36 +39,26 @@ function LookupCell({
   options = [],
   onChange,
   onSelect,
+  kind,
 }: {
   value: string;
   options?: LookupItem[];
   onChange: (value: string) => void;
   onSelect: (value: string) => void;
+  kind?: "companies" | "cargoes";
 }) {
   return (
-    <Select
-      showSearch
-      allowClear
-      size="small"
-      variant="borderless"
-      value={value || undefined}
-      onSearch={onChange}
-      onChange={(next) => {
-        const value = next ?? "";
-        onChange(value);
-        onSelect(value);
-      }}
-      style={{ width: "100%", fontSize: 11 }}
-      options={options.map((item) => ({ value: lookupLabel(item), label: lookupLabel(item) }))}
-      filterOption={(input, option) =>
-        String(option?.label ?? "")
-          .toLowerCase()
-          .includes(input.toLowerCase())
-      }
+    <RemoteLookupSelect
+      value={value}
+      initialOptions={options}
+      onInputChange={onChange}
+      onResolvedChange={(next) => onSelect(next)}
+      formatOption={lookupLabel}
+      fetchOptions={(query) => (kind ? fetchLookup(kind, query) : Promise.resolve([]))}
     />
   );
 }
-
+ 
 const buildColumns = (
   update: (key: string, field: CargoField, value: string | boolean) => void,
   selectLookup: (
@@ -87,6 +79,7 @@ const buildColumns = (
       <LookupCell
         value={v}
         options={lookups.companies}
+        kind="companies"
         onChange={(value) => update(row.key, "account", value)}
         onSelect={(value) => selectLookup(row.key, "companies", value)}
       />
@@ -100,6 +93,7 @@ const buildColumns = (
       <LookupCell
         value={v}
         options={lookups.cargoes}
+        kind="cargoes"
         onChange={(value) => update(row.key, "cargoName", value)}
         onSelect={(value) => selectLookup(row.key, "cargoes", value)}
       />
@@ -110,11 +104,11 @@ const buildColumns = (
     dataIndex: "loadingPort",
     width: 145,
     render: (v: string, row) => (
-      <LookupCell
+      <PortLookupSelect
         value={v}
-        options={lookups.ports}
-        onChange={(value) => update(row.key, "loadingPort", value)}
-        onSelect={(value) => selectLookup(row.key, "ports", value)}
+        initialOptions={lookups.ports}
+        onInputChange={(value) => update(row.key, "loadingPort", value)}
+        onResolvedChange={(value) => selectLookup(row.key, "ports", value)}
       />
     ),
   },
@@ -123,11 +117,13 @@ const buildColumns = (
     dataIndex: "dischargingPort",
     width: 145,
     render: (v: string, row) => (
-      <LookupCell
+      <PortLookupSelect
         value={v}
-        options={lookups.ports}
-        onChange={(value) => update(row.key, "dischargingPort", value)}
-        onSelect={(value) => selectLookup(row.key, "ports", value, "dischargingPort")}
+        initialOptions={lookups.ports}
+        onInputChange={(value) => update(row.key, "dischargingPort", value)}
+        onResolvedChange={(value) =>
+          selectLookup(row.key, "ports", value, "dischargingPort")
+        }
       />
     ),
   },

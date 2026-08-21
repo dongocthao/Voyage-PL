@@ -1,15 +1,14 @@
 import { useMemo, useState } from "react";
-import { FlaskConical, List, Printer, X } from "lucide-react";
+import { FlaskConical, List, Printer } from "lucide-react";
 import { robData, type RobRow } from "./simulatorData";
 import VesselSection from "./VesselSection";
 import { VE_COLORS } from "./theme";
 import { valueBunkerPlan, type BunkerFuel } from "@/lib/calculations/bunker";
+import DialogShell from "./DialogShell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -110,23 +109,63 @@ export default function BunkerSimulatorApp({ onClose }: { onClose?: () => void }
   }
 
   return (
-    <Card className="mx-auto w-[1700px] rounded-none border-[#C9D4E1] shadow-sm">
-      <CardHeader className="flex h-8 flex-row items-center justify-between rounded-none border-b border-[#0F4E68] bg-[#155B78] px-3 py-0 text-white">
-        <CardTitle className="flex items-center gap-2 text-[12px] font-bold text-white">
-          <FlaskConical className="h-4 w-4" />
-          Bunker Simulator
-        </CardTitle>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 rounded-none text-white hover:bg-white/10 hover:text-white"
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </CardHeader>
-
-      <CardContent className="space-y-3 px-3 pb-3 pt-3">
+    <DialogShell
+      title="Bunker Simulator"
+      icon={<FlaskConical className="h-4 w-4" />}
+      width={1700}
+      bodyPadding={12}
+      onClose={onClose}
+      actions={[
+        { label: "Close", onClick: onClose },
+      ]}
+      footerLeft={
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="h-7 rounded-none border-[#C9D4E1] px-2 text-[11px]">
+            <Printer className="h-3.5 w-3.5" />
+            Print
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 rounded-none border-[#C9D4E1] px-2 text-[11px]">
+            <List className="h-3.5 w-3.5" />
+            Index
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 rounded-none border-[#C9D4E1] px-2 text-[11px]"
+            onClick={handleReset}
+          >
+            Reset
+          </Button>
+          <div className="ml-2 flex w-[180px] items-center gap-2">
+            <Slider
+              min={50}
+              max={150}
+              step={1}
+              value={[efficiencyPct]}
+              onValueChange={(value) => setEfficiencyPct(value[0] ?? 100)}
+            />
+            <span className="w-[42px] text-right text-[11px] text-[#35516C]">{efficiencyPct}%</span>
+          </div>
+        </div>
+      }
+    >
+      <div className="bunker-simulator-dialog space-y-3">
+        <style>
+          {`
+            .bunker-simulator-dialog [data-state="checked"] {
+              background-color: ${VE_COLORS.headerText};
+              border-color: ${VE_COLORS.headerText};
+              color: ${VE_COLORS.headerText};
+            }
+            .bunker-simulator-dialog [role="radio"][data-state="checked"] {
+              border-color: ${VE_COLORS.headerText};
+            }
+            .bunker-simulator-dialog [role="radio"][data-state="checked"]::after,
+            .bunker-simulator-dialog [role="radio"][data-state="checked"] span {
+              background-color: ${VE_COLORS.headerText};
+            }
+          `}
+        </style>
         <section className="space-y-2">
           <div className="text-[12px] font-semibold uppercase tracking-wide text-[#35516C]">
             Vessel Particular
@@ -415,44 +454,8 @@ export default function BunkerSimulatorApp({ onClose }: { onClose?: () => void }
             </section>
           </div>
         </div>
-      </CardContent>
-
-      <Separator />
-
-      <CardFooter className="flex items-center justify-between px-3 py-2">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-7 rounded-none border-[#C9D4E1] px-2 text-[11px]">
-            <Printer className="h-3.5 w-3.5" />
-            Print
-          </Button>
-          <Button variant="outline" size="sm" className="h-7 rounded-none border-[#C9D4E1] px-2 text-[11px]">
-            <List className="h-3.5 w-3.5" />
-            Index
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 rounded-none border-[#C9D4E1] px-2 text-[11px]"
-            onClick={handleReset}
-          >
-            Reset
-          </Button>
-          <div className="ml-2 flex w-[180px] items-center gap-2">
-            <Slider
-              min={50}
-              max={150}
-              step={1}
-              value={[efficiencyPct]}
-              onValueChange={(value) => setEfficiencyPct(value[0] ?? 100)}
-            />
-            <span className="w-[42px] text-right text-[11px] text-[#35516C]">{efficiencyPct}%</span>
-          </div>
-        </div>
-        <Button size="sm" className="h-7 rounded-none px-3 text-[11px]" onClick={onClose}>
-          Close
-        </Button>
-      </CardFooter>
-    </Card>
+      </div>
+    </DialogShell>
   );
 }
 

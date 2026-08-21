@@ -8,12 +8,15 @@ import {
 } from './dto/estimate-simulation.dto';
 import { SaveCargoReletEstimateDto } from './dto/cargo-relet-snapshot.dto';
 import { SaveOperationSnapshotDto } from './dto/operation-snapshot.dto';
+import { SaveOperationPortActivitiesDto } from './dto/operation-port-activities.dto';
 import { SaveVoyageEstimateDto } from './dto/voyage-estimate-snapshot.dto';
 import { SaveTimeCharterEstimateDto } from './dto/time-charter-snapshot.dto';
 import { EstimateSimulationService } from './services/estimate-simulation.service';
 import { EstimateListService } from './services/estimate-list.service';
+import { EstimateDeletionService } from './services/estimate-deletion.service';
 import { CargoReletEstimateSnapshotService } from './services/cargo-relet-estimate-snapshot.service';
 import { OperationSnapshotService } from './services/operation-snapshot.service';
+import { OperationPortActivitiesService } from './services/operation-port-activities.service';
 import { TimeCharterEstimateSnapshotService } from './services/time-charter-estimate-snapshot.service';
 import { VoyageEstimateSnapshotService } from './services/voyage-estimate-snapshot.service';
 
@@ -26,7 +29,9 @@ export class EstimatesController {
     private readonly cargoReletSnapshots: CargoReletEstimateSnapshotService,
     private readonly simulations: EstimateSimulationService,
     private readonly estimateList: EstimateListService,
+    private readonly estimateDeletion: EstimateDeletionService,
     private readonly operationSnapshots: OperationSnapshotService,
+    private readonly operationPortActivities: OperationPortActivitiesService,
   ) {}
 
   @Get()
@@ -37,6 +42,11 @@ export class EstimatesController {
   @Get('operations')
   listOperations() {
     return this.operationSnapshots.list();
+  }
+
+  @Delete(':estimateId')
+  deleteEstimate(@Param('estimateId') estimateId: string) {
+    return this.estimateDeletion.delete(estimateId);
   }
 
   @Post('voyage-snapshots')
@@ -92,6 +102,11 @@ export class EstimatesController {
   @Delete('operation-snapshots/:operationId')
   deleteOperationSnapshot(@Param('operationId') operationId: string) {
     return this.operationSnapshots.delete(operationId);
+  }
+
+  @Post('operation-port-activities')
+  saveOperationPortActivities(@Body() body: SaveOperationPortActivitiesDto) {
+    return this.operationPortActivities.saveSummary(body);
   }
 
   @Post('voyage-simulations/freight')

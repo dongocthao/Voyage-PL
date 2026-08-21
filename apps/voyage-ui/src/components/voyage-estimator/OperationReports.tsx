@@ -1,5 +1,5 @@
 import { Modal, Button, Input, Checkbox, Select } from "antd";
-import { Fragment } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   PlusCircleOutlined,
@@ -43,7 +43,15 @@ function Row({
 }
 
 /** Bảng 3 loại nhiên liệu + 2 cột trống như ảnh gốc */
-function FuelGrid({ values, editable }: { values: string[]; editable?: boolean }) {
+function FuelGrid({
+  values,
+  editable,
+  onChange,
+}: {
+  values: string[];
+  editable?: boolean;
+  onChange?: (index: number, value: string) => void;
+}) {
   return (
     <div className="grid border" style={{ ...B, gridTemplateColumns: "repeat(5, 1fr)" }}>
       {FUEL_TYPES.map((t) => (
@@ -59,7 +67,12 @@ function FuelGrid({ values, editable }: { values: string[]; editable?: boolean }
           className="border-r"
           style={{ ...B, background: editable ? VE_COLORS.editable : undefined }}
         >
-          <Input defaultValue={v} variant="borderless" style={{ ...cell, textAlign: "right" }} />
+          <Input
+            value={v}
+            onChange={onChange ? (event) => onChange(i, event.target.value) : undefined}
+            variant="borderless"
+            style={{ ...cell, textAlign: "right" }}
+          />
         </div>
       ))}
       <div className="border-r" style={{ ...B, background: "#F5F7FA" }} />
@@ -69,7 +82,23 @@ function FuelGrid({ values, editable }: { values: string[]; editable?: boolean }
 }
 
 /** Bảng Supply (Type / Account / Quantity / Unit Price / Price) */
-function SupplyGrid({ disabled }: { disabled?: boolean }) {
+type SupplyRow = {
+  type: string;
+  account: string;
+  quantity: string;
+  unitPrice: string;
+  price: string;
+};
+
+function SupplyGrid({
+  disabled,
+  rows,
+  onChange,
+}: {
+  disabled?: boolean;
+  rows: SupplyRow[];
+  onChange?: (index: number, patch: Partial<SupplyRow>) => void;
+}) {
   return (
     <div className="border" style={B}>
       <div className="grid" style={{ gridTemplateColumns: "60px 1fr 1fr 1fr 1fr 44px" }}>
@@ -82,47 +111,58 @@ function SupplyGrid({ disabled }: { disabled?: boolean }) {
             {h}
           </div>
         ))}
-        {FUEL_TYPES.map((t) => (
-          <Fragment key={t}>
+        {rows.map((row, index) => (
+          <Fragment key={row.type}>
             <div
-              key={`${t}-t`}
+              key={`${row.type}-t`}
               className="border-b border-r px-1 py-[3px]"
               style={{ ...B, opacity: disabled ? 0.45 : 1 }}
             >
-              {t}
+              {row.type}
             </div>
-            <div key={`${t}-a`} className="border-b border-r" style={B}>
-              <Input disabled={disabled} variant="borderless" style={cell} />
-            </div>
-            <div key={`${t}-q`} className="border-b border-r" style={B}>
+            <div key={`${row.type}-a`} className="border-b border-r" style={B}>
               <Input
                 disabled={disabled}
+                value={row.account}
+                onChange={(event) => onChange?.(index, { account: event.target.value })}
+                variant="borderless"
+                style={cell}
+              />
+            </div>
+            <div key={`${row.type}-q`} className="border-b border-r" style={B}>
+              <Input
+                disabled={disabled}
+                value={row.quantity}
+                onChange={(event) => onChange?.(index, { quantity: event.target.value })}
                 variant="borderless"
                 style={{ ...cell, textAlign: "right" }}
               />
             </div>
-            <div key={`${t}-u`} className="flex items-center border-b border-r" style={B}>
+            <div key={`${row.type}-u`} className="flex items-center border-b border-r" style={B}>
               <DollarOutlined style={{ color: "#FFB300", fontSize: 11, marginLeft: 4 }} />
               <Input
                 disabled={disabled}
+                value={row.unitPrice}
+                onChange={(event) => onChange?.(index, { unitPrice: event.target.value })}
                 variant="borderless"
                 style={{ ...cell, textAlign: "right" }}
               />
             </div>
             <div
-              key={`${t}-p`}
+              key={`${row.type}-p`}
               className="border-b border-r"
               style={{ ...B, background: VE_COLORS.editable }}
             >
               <Input
                 disabled={disabled}
-                defaultValue="0.00"
+                value={row.price}
+                onChange={(event) => onChange?.(index, { price: event.target.value })}
                 variant="borderless"
                 style={{ ...cell, textAlign: "right" }}
               />
             </div>
             <div
-              key={`${t}-x`}
+              key={`${row.type}-x`}
               className="flex items-center justify-center gap-1 border-b px-1"
               style={B}
             >
@@ -179,11 +219,59 @@ export function ArrivalReportModal({
   onFix?: (report: ArrivalReportData) => void;
 }) {
   const d = report ?? arrivalReport;
+  const [draft, setDraft] = useState(d);
+  const [remark, setRemark] = useState("");
+  const [supplyDisabled, setSupplyDisabled] = useState(false);
+  const [supplyRows, setSupplyRows] = useState<SupplyRow[]>(() =>
+    FUEL_TYPES.map((type) => ({ type, account: "", quantity: "", unitPrice: "", price: "0.00" })),
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const nextDraft = report ?? arrivalReport;
+    const nextSupplyRows = FUEL_TYPES.map((type) => ({
+      type,
+      account: "",
+      quantity: "",
+      unitPrice: "",
+      price: "0.00",
+    }));
+    setDraft(nextDraft);
+    setRemark("");
+    setSupplyDisabled(false);
+    setSupplyRows(nextSupplyRows);
+    setCleanSignature(
+      JSON.stringify({
+        draft: nextDraft,
+        remark: "",
+        supplyDisabled: false,
+        supplyRows: nextSupplyRows,
+      }),
+    );
+  }, [open, report]);
+
+  const currentSignature = useMemo(
+    () => JSON.stringify({ draft, remark, supplyDisabled, supplyRows }),
+    [draft, remark, supplyDisabled, supplyRows],
+  );
+  const [cleanSignature, setCleanSignature] = useState("");
+  const isDirty = cleanSignature !== "" && currentSignature !== cleanSignature;
+
+  const requestClose = () => {
+    if (!isDirty || window.confirm("Discard unsaved changes in Arrival Report?")) {
+      onClose();
+    }
+  };
+
+  const updateSupplyRow = (index: number, patch: Partial<SupplyRow>) => {
+    setSupplyRows((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+  };
+
   return (
     <ReportModal
       open={open}
-      onClose={onClose}
-      title={d.portTitle}
+      onClose={requestClose}
+      title={draft.portTitle}
       width={700}
       footer={
         <div className="flex items-center justify-between">
@@ -198,13 +286,14 @@ export function ArrivalReportModal({
               size="small"
               type="primary"
               onClick={() => {
-                onFix?.(d);
+                onFix?.(draft);
+                setCleanSignature(currentSignature);
                 onClose();
               }}
             >
               Fix Arrival
             </Button>
-            <Button size="small" onClick={onClose}>
+            <Button size="small" onClick={requestClose}>
               Cancel
             </Button>
           </div>
@@ -215,14 +304,19 @@ export function ArrivalReportModal({
         <div className="flex items-center justify-between gap-2">
           <div>
             <div className="flex items-center gap-1 border px-1" style={{ ...B, width: 190 }}>
-              <Input defaultValue={d.time} variant="borderless" style={cell} />
+              <Input
+                value={draft.time}
+                onChange={(event) => setDraft((current) => ({ ...current, time: event.target.value }))}
+                variant="borderless"
+                style={cell}
+              />
               <CalendarOutlined style={{ color: VE_COLORS.titleBar }} />
             </div>
             <div
               className="mt-1 border px-2 py-[2px]"
               style={{ ...B, background: VE_COLORS.editable, width: 190 }}
             >
-              {d.note}
+              {draft.note}
             </div>
           </div>
           <Button size="small">Captain Report</Button>
@@ -231,17 +325,34 @@ export function ArrivalReportModal({
 
       <Row label="Bunker" align="start">
         <div className="mb-1 font-bold">ROB</div>
-        <FuelGrid values={d.rob} />
+        <FuelGrid values={draft.rob} />
 
         <div className="mb-1 mt-3 flex items-center gap-2">
           <span className="font-bold">Supply</span>
           <Button size="small">Import from Bunker Simulator</Button>
-          <Checkbox className="ml-auto text-[11px]">N/A</Checkbox>
+          <Checkbox
+            checked={supplyDisabled}
+            onChange={(event) => setSupplyDisabled(event.target.checked)}
+            className="ml-auto text-[11px]"
+          >
+            N/A
+          </Checkbox>
         </div>
-        <SupplyGrid />
+        <SupplyGrid disabled={supplyDisabled} rows={supplyRows} onChange={updateSupplyRow} />
 
         <div className="mb-1 mt-3 font-bold">Sea Consumption</div>
-        <FuelGrid values={d.seaConsumption} editable />
+        <FuelGrid
+          values={draft.seaConsumption}
+          editable
+          onChange={(index, value) =>
+            setDraft((current) => ({
+              ...current,
+              seaConsumption: current.seaConsumption.map((item, itemIndex) =>
+                itemIndex === index ? value : item,
+              ),
+            }))
+          }
+        />
       </Row>
 
       <Row label="Actual Distance sailed as per Master's Report" align="start">
@@ -249,7 +360,10 @@ export function ArrivalReportModal({
           <div className="flex items-center gap-2">
             <span>Total</span>
             <Input
-              defaultValue={d.totalDistance}
+              value={draft.totalDistance}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, totalDistance: event.target.value }))
+              }
               style={{ ...cell, width: 120, textAlign: "right" }}
             />
             <span className="w-[36px]">Miles</span>
@@ -257,7 +371,10 @@ export function ArrivalReportModal({
           <div className="flex items-center gap-2">
             <span>ECA</span>
             <Input
-              defaultValue={d.ecaDistance}
+              value={draft.ecaDistance}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, ecaDistance: event.target.value }))
+              }
               style={{ ...cell, width: 120, textAlign: "right" }}
             />
             <span className="w-[36px]">Miles</span>
@@ -268,7 +385,8 @@ export function ArrivalReportModal({
       <Row label="Av. Speed">
         <div className="flex items-center justify-end gap-2">
           <Input
-            defaultValue={d.avSpeed}
+            value={draft.avSpeed}
+            onChange={(event) => setDraft((current) => ({ ...current, avSpeed: event.target.value }))}
             style={{ ...cell, width: 120, textAlign: "right", background: VE_COLORS.editable }}
           />
           <span className="w-[36px]">Knots</span>
@@ -276,7 +394,12 @@ export function ArrivalReportModal({
       </Row>
 
       <Row label="Remark" align="start">
-        <Input.TextArea rows={2} style={{ fontSize: 11 }} />
+        <Input.TextArea
+          rows={2}
+          value={remark}
+          onChange={(event) => setRemark(event.target.value)}
+          style={{ fontSize: 11 }}
+        />
       </Row>
     </ReportModal>
   );
@@ -296,11 +419,73 @@ export function DepartureReportModal({
   onFix?: (report: DepartureReportData) => void;
 }) {
   const d = report ?? departureReport;
+  const [draft, setDraft] = useState(d);
+  const [remark, setRemark] = useState("");
+  const [supplyDisabled, setSupplyDisabled] = useState(true);
+  const [laytimeNotApplicable, setLaytimeNotApplicable] = useState(false);
+  const [portChargeNotApplicable, setPortChargeNotApplicable] = useState(false);
+  const [supplyRows, setSupplyRows] = useState<SupplyRow[]>(() =>
+    FUEL_TYPES.map((type) => ({ type, account: "", quantity: "", unitPrice: "", price: "0.00" })),
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const nextDraft = report ?? departureReport;
+    const nextSupplyRows = FUEL_TYPES.map((type) => ({
+      type,
+      account: "",
+      quantity: "",
+      unitPrice: "",
+      price: "0.00",
+    }));
+    setDraft(nextDraft);
+    setRemark("");
+    setSupplyDisabled(true);
+    setLaytimeNotApplicable(false);
+    setPortChargeNotApplicable(false);
+    setSupplyRows(nextSupplyRows);
+    setCleanSignature(
+      JSON.stringify({
+        draft: nextDraft,
+        remark: "",
+        supplyDisabled: true,
+        laytimeNotApplicable: false,
+        portChargeNotApplicable: false,
+        supplyRows: nextSupplyRows,
+      }),
+    );
+  }, [open, report]);
+
+  const currentSignature = useMemo(
+    () =>
+      JSON.stringify({
+        draft,
+        remark,
+        supplyDisabled,
+        laytimeNotApplicable,
+        portChargeNotApplicable,
+        supplyRows,
+      }),
+    [draft, laytimeNotApplicable, portChargeNotApplicable, remark, supplyDisabled, supplyRows],
+  );
+  const [cleanSignature, setCleanSignature] = useState("");
+  const isDirty = cleanSignature !== "" && currentSignature !== cleanSignature;
+
+  const requestClose = () => {
+    if (!isDirty || window.confirm("Discard unsaved changes in Departure Report?")) {
+      onClose();
+    }
+  };
+
+  const updateSupplyRow = (index: number, patch: Partial<SupplyRow>) => {
+    setSupplyRows((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+  };
+
   return (
     <ReportModal
       open={open}
-      onClose={onClose}
-      title={d.portTitle}
+      onClose={requestClose}
+      title={draft.portTitle}
       width={700}
       footer={
         <div className="flex items-center justify-between">
@@ -315,13 +500,14 @@ export function DepartureReportModal({
               size="small"
               type="primary"
               onClick={() => {
-                onFix?.(d);
+                onFix?.(draft);
+                setCleanSignature(currentSignature);
                 onClose();
               }}
             >
               Fix Departure
             </Button>
-            <Button size="small" onClick={onClose}>
+            <Button size="small" onClick={requestClose}>
               Cancel
             </Button>
           </div>
@@ -332,14 +518,19 @@ export function DepartureReportModal({
         <div className="flex items-center justify-between gap-2">
           <div>
             <div className="flex items-center gap-1 border px-1" style={{ ...B, width: 190 }}>
-              <Input defaultValue={d.time} variant="borderless" style={cell} />
+              <Input
+                value={draft.time}
+                onChange={(event) => setDraft((current) => ({ ...current, time: event.target.value }))}
+                variant="borderless"
+                style={cell}
+              />
               <CalendarOutlined style={{ color: VE_COLORS.titleBar }} />
             </div>
             <div
               className="mt-1 border px-2 py-[2px]"
               style={{ ...B, background: VE_COLORS.editable, width: 190 }}
             >
-              {d.note}
+              {draft.note}
             </div>
           </div>
           <div className="flex gap-2">
@@ -361,14 +552,16 @@ export function DepartureReportModal({
           </div>
           <div className="border-r" style={B}>
             <Input
-              defaultValue={d.idle}
+              value={draft.idle}
+              onChange={(event) => setDraft((current) => ({ ...current, idle: event.target.value }))}
               variant="borderless"
               style={{ ...cell, textAlign: "right" }}
             />
           </div>
           <div>
             <Input
-              defaultValue={d.work}
+              value={draft.work}
+              onChange={(event) => setDraft((current) => ({ ...current, work: event.target.value }))}
               variant="borderless"
               style={{ ...cell, textAlign: "right" }}
             />
@@ -378,36 +571,63 @@ export function DepartureReportModal({
 
       <Row label="Bunker" align="start">
         <div className="mb-1 font-bold">ROB</div>
-        <FuelGrid values={d.rob} />
+        <FuelGrid values={draft.rob} />
 
         <div className="mb-1 mt-3 flex items-center gap-2">
           <span className="font-bold">Supply</span>
           <Button size="small">Import from Bunker Simulator</Button>
-          <Checkbox defaultChecked className="ml-auto text-[11px]">
+          <Checkbox
+            checked={supplyDisabled}
+            onChange={(event) => setSupplyDisabled(event.target.checked)}
+            className="ml-auto text-[11px]"
+          >
             N/A
           </Checkbox>
         </div>
-        <SupplyGrid disabled />
+        <SupplyGrid disabled={supplyDisabled} rows={supplyRows} onChange={updateSupplyRow} />
 
         <div className="mb-1 mt-3 font-bold">Port Consumption</div>
-        <FuelGrid values={d.portConsumption} editable />
+        <FuelGrid
+          values={draft.portConsumption}
+          editable
+          onChange={(index, value) =>
+            setDraft((current) => ({
+              ...current,
+              portConsumption: current.portConsumption.map((item, itemIndex) =>
+                itemIndex === index ? value : item,
+              ),
+            }))
+          }
+        />
       </Row>
 
       <Row label="Laytime Calculation">
         <div className="flex items-center justify-end gap-2">
-          <span>{d.laytime}</span>
+          <span>{draft.laytime}</span>
           <Button size="small" onClick={onOpenLaytime}>
             Open
           </Button>
-          <Checkbox className="text-[11px]">N/A</Checkbox>
+          <Checkbox
+            checked={laytimeNotApplicable}
+            onChange={(event) => setLaytimeNotApplicable(event.target.checked)}
+            className="text-[11px]"
+          >
+            N/A
+          </Checkbox>
         </div>
       </Row>
 
       <Row label="Port Charge Details">
         <div className="flex items-center justify-end gap-2">
-          <span>Total {d.portChargeTotal}</span>
+          <span>Total {draft.portChargeTotal}</span>
           <Button size="small">Open</Button>
-          <Checkbox className="text-[11px]">N/A</Checkbox>
+          <Checkbox
+            checked={portChargeNotApplicable}
+            onChange={(event) => setPortChargeNotApplicable(event.target.checked)}
+            className="text-[11px]"
+          >
+            N/A
+          </Checkbox>
         </div>
       </Row>
 
@@ -419,7 +639,12 @@ export function DepartureReportModal({
       </Row>
 
       <Row label="Remark" align="start">
-        <Input.TextArea rows={2} style={{ fontSize: 11 }} />
+        <Input.TextArea
+          rows={2}
+          value={remark}
+          onChange={(event) => setRemark(event.target.value)}
+          style={{ fontSize: 11 }}
+        />
       </Row>
     </ReportModal>
   );
